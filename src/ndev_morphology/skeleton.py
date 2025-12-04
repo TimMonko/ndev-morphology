@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "skeletonize_labels",
-    "separate_touching_skeletons",
+    "separate_touching_skeleton_labels",
     "exclude_region_from_skeleton",
 ]
 
@@ -28,7 +28,8 @@ def skeletonize_labels(labels: ArrayLike) -> np.ndarray:
     Create skeletons while maintaining label identities from a label image.
 
     Each labeled region is skeletonized independently and the skeleton pixels
-    retain their original label values.
+    retain their original label values; normally, scikit-image's morphology.skeletonize
+    produces a binary skeleton image without label information.
 
     Parameters
     ----------
@@ -56,13 +57,16 @@ def skeletonize_labels(labels: ArrayLike) -> np.ndarray:
     return (labels * skeleton).astype(labels.dtype)
 
 
-def separate_touching_skeletons(skeleton_labels: ArrayLike) -> np.ndarray:
+def separate_touching_skeleton_labels(
+    skeleton_labels: ArrayLike,
+) -> np.ndarray:
     """
     Remove skeleton pixels where different labels touch.
 
     This is useful when skeletonizing adjacent labeled regions that result in
     touching skeletons. The function removes the minimal pixels needed to
-    separate connected components from different original labels.
+    separate connected components from different original labels. Separates
+    based on 8-connectivity in 2D or 26-connectivity in 3D.
 
     Parameters
     ----------
@@ -88,7 +92,7 @@ def separate_touching_skeletons(skeleton_labels: ArrayLike) -> np.ndarray:
 
     Examples
     --------
-    >>> from ndev_morphology import skeletonize_labels, separate_touching_skeletons
+    >>> from ndev_morphology import skeletonize_labels, separate_touching_skeleton_labels
     >>> # Create labels that touch
     >>> labels = np.zeros((10, 20), dtype=np.uint16)
     >>> labels[:, :10] = 1
@@ -96,7 +100,7 @@ def separate_touching_skeletons(skeleton_labels: ArrayLike) -> np.ndarray:
     >>> # Skeletonize - skeletons may touch at boundary
     >>> skeleton = skeletonize_labels(labels)
     >>> # Separate touching skeletons
-    >>> separated = separate_touching_skeletons(skeleton)
+    >>> separated = separate_touching_skeleton_labels(skeleton)
     """
     skeleton_labels = np.asarray(skeleton_labels)
     separated = skeleton_labels.copy()
@@ -117,6 +121,7 @@ def separate_touching_skeletons(skeleton_labels: ArrayLike) -> np.ndarray:
         touching = this_label & ndimage.binary_dilation(
             other_labels, structure=structure
         )
+        # Replace touching pixels with 0 to separate
         separated[touching] = 0
 
     return separated.astype(skeleton_labels.dtype)

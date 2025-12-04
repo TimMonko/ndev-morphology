@@ -9,7 +9,7 @@ from ndev_morphology.labels import (
 )
 from ndev_morphology.skeleton import (
     exclude_region_from_skeleton,
-    separate_touching_skeletons,
+    separate_touching_skeleton_labels,
     skeletonize_labels,
 )
 
@@ -177,8 +177,8 @@ class TestConnectBreaksBetweenLabels:
         assert len(unique_nonzero) >= 1  # At least one region preserved
 
 
-class TestSeparateTouchingSkeletons:
-    """Tests for separate_touching_skeletons function."""
+class TestSeparateTouchingSkeletonLabels:
+    """Tests for separate_touching_skeleton_labels function."""
 
     def test_separate_skeleton_basics(self):
         """Test that function separates touching skeleton pixels."""
@@ -189,7 +189,7 @@ class TestSeparateTouchingSkeletons:
         # Horizontal line with label 2 touching at column 10
         skeleton[10, 10:15] = 2
 
-        result = separate_touching_skeletons(skeleton)
+        result = separate_touching_skeleton_labels(skeleton)
 
         # The touching pixels should be removed
         assert result[10, 9] == 0 or result[10, 10] == 0
@@ -204,7 +204,7 @@ class TestSeparateTouchingSkeletons:
         skeleton[5, 5:10] = 1
         skeleton[15, 5:10] = 2
 
-        result = separate_touching_skeletons(skeleton)
+        result = separate_touching_skeleton_labels(skeleton)
 
         # Should be identical since nothing touches
         np.testing.assert_array_equal(result, skeleton)
@@ -212,7 +212,7 @@ class TestSeparateTouchingSkeletons:
     def test_empty_skeleton(self):
         """Test with empty skeleton."""
         skeleton = np.zeros((20, 20), dtype=np.uint16)
-        result = separate_touching_skeletons(skeleton)
+        result = separate_touching_skeleton_labels(skeleton)
 
         np.testing.assert_array_equal(result, skeleton)
 
@@ -221,7 +221,7 @@ class TestSeparateTouchingSkeletons:
         skeleton = np.zeros((20, 20), dtype=np.uint16)
         skeleton[10, 5:15] = 1
 
-        result = separate_touching_skeletons(skeleton)
+        result = separate_touching_skeleton_labels(skeleton)
 
         np.testing.assert_array_equal(result, skeleton)
 
@@ -231,7 +231,7 @@ class TestSeparateTouchingSkeletons:
         skeleton[10, 5:10] = 1
         skeleton[10, 10:15] = 2
 
-        result = separate_touching_skeletons(skeleton)
+        result = separate_touching_skeleton_labels(skeleton)
 
         assert result.dtype == skeleton.dtype
 
@@ -246,7 +246,7 @@ class TestSeparateTouchingSkeletons:
         skeleton[9, 5:10] = 1  # Ends at (9, 9)
         skeleton[10, 10:15] = 2  # Starts at (10, 10) - diagonal from (9, 9)
 
-        result = separate_touching_skeletons(skeleton)
+        result = separate_touching_skeleton_labels(skeleton)
 
         # Diagonals ARE considered touching, so pixels should be removed
         assert np.count_nonzero(result) < np.count_nonzero(skeleton)
@@ -268,7 +268,7 @@ class TestSeparateTouchingSkeletons:
         ), "Setup: should be merged"
 
         # After separation: skan sees them as TWO skeletons
-        result = separate_touching_skeletons(skeleton)
+        result = separate_touching_skeleton_labels(skeleton)
         skel_after = skan.Skeleton(result)
         summary_after = skan.summarize(skel_after, separator="_")
         assert (
