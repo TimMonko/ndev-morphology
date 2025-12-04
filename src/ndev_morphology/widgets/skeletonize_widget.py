@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import napari.types
 from magicgui import magic_factory
 
-from ..skeleton import skeletonize_labels
+from ..skeleton import separate_touching_skeleton_labels, skeletonize_labels
 
 if TYPE_CHECKING:
     pass
@@ -22,9 +22,17 @@ __all__ = ["skeletonize_labels_widget"]
 @magic_factory(
     call_button="Skeletonize Labels",
     labels={"label": "Labels Layer"},
+    separate_touching={
+        "label": "Separate Touching Skeletons",
+        "tooltip": (
+            "Remove pixels where skeletons from different labels touch. "
+            "This ensures skan treats each label as a separate skeleton."
+        ),
+    },
 )
 def skeletonize_labels_widget(
     labels: napari.types.LabelsData,
+    separate_touching: bool = True,
 ) -> napari.types.LayerDataTuple:
     """
     Skeletonize a labels image while preserving label identities.
@@ -38,6 +46,9 @@ def skeletonize_labels_widget(
     ----------
     labels : napari.types.LabelsData
         Labeled image where each unique value represents a distinct object.
+    separate_touching : bool
+        If True, remove pixels where skeletons from different labels touch.
+        This ensures skan treats each labeled region as a separate skeleton.
 
     Returns
     -------
@@ -51,6 +62,9 @@ def skeletonize_labels_widget(
     as a Shapes layer.
     """
     skeleton = skeletonize_labels(labels)
+
+    if separate_touching:
+        skeleton = separate_touching_skeleton_labels(skeleton)
 
     return (
         skeleton,

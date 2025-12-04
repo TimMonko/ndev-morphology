@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "skeleton_to_paths",
-    "sholl_shells_to_shapes",
+    "sholl_shells_to_ellipses",
 ]
 
 
@@ -69,18 +69,18 @@ def skeleton_to_paths(
     return paths, properties
 
 
-def sholl_shells_to_shapes(
+def sholl_shells_to_ellipses(
     center: ArrayLike,
     radii: ArrayLike,
     *,
-    n_points: int = 64,
     ndim: int = 2,
 ) -> list[np.ndarray]:
     """
-    Generate circle/sphere shell coordinates for napari Shapes layer.
+    Generate ellipse bounding boxes for napari Shapes layer.
 
-    Creates concentric circles (2D) or polygonal approximations of
-    spherical cross-sections (3D) for Sholl visualization.
+    Creates circles (2D) as ellipses defined by their bounding boxes
+    for Sholl visualization. Using ellipses is more efficient than
+    polygon approximations and renders as true circles.
 
     Parameters
     ----------
@@ -89,42 +89,58 @@ def sholl_shells_to_shapes(
         Should be in pixel units for napari display.
     radii : ArrayLike
         Array of shell radii in pixel units.
-    n_points : int, optional
-        Number of points to approximate each circle. Default is 64.
     ndim : int, optional
         Number of dimensions (2 or 3). Default is 2.
+        For 3D, circles are drawn in the XY plane at the center Z.
 
     Returns
     -------
     list of np.ndarray
-        List of shell coordinate arrays, each shape (n_points, ndim).
-        For 3D, shells are circles in the XY plane at the center Z.
+        List of ellipse bounding boxes, each shape (4, ndim).
+        Each ellipse is defined by 4 corner points of its bounding box:
+        [top-left, top-right, bottom-right, bottom-left].
+
+    Notes
+    -----
+    napari's ellipse shape_type expects bounding box corners, not
+    center + radii. This function converts center + radius to the
+    4-corner format.
 
     Examples
     --------
-    >>> shells = sholl_shells_to_shapes(center=[100, 150], radii=[10, 20, 30])
-    >>> viewer.add_shapes(shells, shape_type='polygon', face_color='transparent')
+    >>> shells = sholl_shells_to_ellipses(center=[100, 150], radii=[10, 20, 30])
+    >>> viewer.add_shapes(
+    ...     shells,
+    ...     shape_type='ellipse',
+    ...     edge_color='blue',
+    ...     face_color='transparent',
+    ... )
     """
     center = np.asarray(center)
     radii = np.asarray(radii)
 
-    # Generate angles for circle points
-    angles = np.linspace(0, 2 * np.pi, n_points, endpoint=False)
-
-    shells = []
+    ellipses = []
     for radius in radii:
         if ndim == 2:
-            # 2D circle: (Y, X) coordinates
-            y = center[0] + radius * np.sin(angles)
-            x = center[1] + radius * np.cos(angles)
-            shell = np.column_stack([y, x])
+            # 2D ellipse bounding box: 4 corners (Y, X)
+            # [top-left, top-right, bottom-right, bottom-left]
+            y, x = center[0], center[1]
+            bbox = np.array([
+                [y - radius, x - radius],  # top-left
+                [y - radius, x + radius],  # top-right
+                [y + radius, x + radius],  # bottom-right
+                [y + radius, x - radius],  # bottom-left
+            ])
         else:
-            # 3D: circle in XY plane at center Z
-            z = np.full(n_points, center[0])
-            y = center[1] + radius * np.sin(angles)
-            x = center[2] + radius * np.cos(angles)
-            shell = np.column_stack([z, y, x])
+            # 3D ellipse in XY plane at center Z
+            z, y, x = center[0], center[1], center[2]
+            bbox = np.array([
+                [z, y - radius, x - radius],
+                [z, y - radius, x + radius],
+                [z, y + radius, x + radius],
+                [z, y + radius, x - radius],
+            ])
 
-        shells.append(shell)
+        ellipses.append(bbox)
 
-    return shells
+    return ellipses

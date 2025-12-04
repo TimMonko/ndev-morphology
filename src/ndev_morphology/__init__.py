@@ -8,7 +8,7 @@ and other branching structures.
 Core Functions
 --------------
 - Skeleton operations: skeletonize_labels, exclude_region_from_skeleton, separate_touching_skeleton_labels
-- Geometry utilities: skeleton_to_paths, sholl_shells_to_shapes
+- Geometry utilities: skeleton_to_paths, sholl_shells_to_ellipses
 - Label operations: filter_labels_by_size, exclude_labels_on_edges, connect_breaks_between_labels
 - Sholl analysis: compute_sholl_profile, ShollResult
 
@@ -28,7 +28,7 @@ except ImportError:
 
 # Skeleton operations
 # Geometry utilities (for programmatic use)
-from ._geometry import sholl_shells_to_shapes, skeleton_to_paths
+from ._geometry import sholl_shells_to_ellipses, skeleton_to_paths
 
 # Label operations
 from .labels import (
@@ -59,5 +59,5 @@ __all__ = [
     "compute_sholl_profile",
     # Geometry
     "skeleton_to_paths",
-    "sholl_shells_to_shapes",
+    "sholl_shells_to_ellipses",
 ]

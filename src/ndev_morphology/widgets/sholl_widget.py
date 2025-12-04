@@ -14,7 +14,7 @@ import numpy as np
 import skan
 from magicgui import magic_factory
 
-from .._geometry import sholl_shells_to_shapes
+from .._geometry import sholl_shells_to_ellipses
 from ..sholl import compute_sholl_profile
 
 if TYPE_CHECKING:
@@ -169,8 +169,8 @@ def sholl_analysis(
     radii_px = result.radii / spacing_y  # Use Y spacing for radius
     center_px = np.array([center_y, center_x])
 
-    # Generate shell shapes
-    shells = sholl_shells_to_shapes(center_px, radii_px, n_points=64, ndim=2)
+    # Generate shell shapes as ellipses (circles)
+    shells = sholl_shells_to_ellipses(center_px, radii_px, ndim=2)
 
     # Properties for coloring
     properties = {
@@ -188,7 +188,7 @@ def sholl_analysis(
     return (
         shells,
         {
-            "shape_type": "polygon",
+            "shape_type": "ellipse",
             "properties": properties,
             "edge_color": "crossings",
             "edge_colormap": edge_colormap,
