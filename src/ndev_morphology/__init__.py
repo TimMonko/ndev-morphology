@@ -40,6 +40,7 @@ from .labels import (
 from .sholl import ShollResult, compute_sholl_profile
 from .skeleton import (
     exclude_region_from_skeleton,
+    separate_touching_skeletons,
     skeletonize_labels,
 )
 
@@ -47,6 +48,7 @@ __all__ = [
     # Skeleton
     "skeletonize_labels",
     "exclude_region_from_skeleton",
+    "separate_touching_skeletons",
     # Labels
     "filter_labels_by_size",
     "exclude_labels_on_edges",

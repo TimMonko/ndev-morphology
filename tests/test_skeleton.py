@@ -9,6 +9,7 @@ from ndev_morphology.labels import (
 )
 from ndev_morphology.skeleton import (
     exclude_region_from_skeleton,
+    separate_touching_skeletons,
     skeletonize_labels,
 )
 
@@ -174,3 +175,102 @@ class TestConnectBreaksBetweenLabels:
         # Should still have two separate regions
         unique_nonzero = np.unique(result[result > 0])
         assert len(unique_nonzero) >= 1  # At least one region preserved
+
+
+class TestSeparateTouchingSkeletons:
+    """Tests for separate_touching_skeletons function."""
+
+    def test_separate_skeleton_basics(self):
+        """Test that function separates touching skeleton pixels."""
+        # Create two adjacent skeleton lines with different labels
+        skeleton = np.zeros((20, 20), dtype=np.uint16)
+        # Horizontal line with label 1
+        skeleton[10, 5:10] = 1
+        # Horizontal line with label 2 touching at column 10
+        skeleton[10, 10:15] = 2
+
+        result = separate_touching_skeletons(skeleton)
+
+        # The touching pixels should be removed
+        assert result[10, 9] == 0 or result[10, 10] == 0
+        # Non-touching parts should be preserved
+        assert result[10, 5] == 1
+        assert result[10, 14] == 2
+
+    def test_no_touching_skeletons(self):
+        """Test that non-touching skeletons are unchanged."""
+        skeleton = np.zeros((20, 20), dtype=np.uint16)
+        # Two separate horizontal lines
+        skeleton[5, 5:10] = 1
+        skeleton[15, 5:10] = 2
+
+        result = separate_touching_skeletons(skeleton)
+
+        # Should be identical since nothing touches
+        np.testing.assert_array_equal(result, skeleton)
+
+    def test_empty_skeleton(self):
+        """Test with empty skeleton."""
+        skeleton = np.zeros((20, 20), dtype=np.uint16)
+        result = separate_touching_skeletons(skeleton)
+
+        np.testing.assert_array_equal(result, skeleton)
+
+    def test_single_label_skeleton(self):
+        """Test that single-label skeleton is unchanged."""
+        skeleton = np.zeros((20, 20), dtype=np.uint16)
+        skeleton[10, 5:15] = 1
+
+        result = separate_touching_skeletons(skeleton)
+
+        np.testing.assert_array_equal(result, skeleton)
+
+    def test_preserves_dtype(self):
+        """Test that output preserves input dtype."""
+        skeleton = np.zeros((20, 20), dtype=np.uint32)
+        skeleton[10, 5:10] = 1
+        skeleton[10, 10:15] = 2
+
+        result = separate_touching_skeletons(skeleton)
+
+        assert result.dtype == skeleton.dtype
+
+    def test_diagonal_not_touching_by_default(self):
+        """Test that diagonally adjacent pixels ARE considered touching.
+
+        Since skan uses 8-connectivity, diagonally adjacent skeleton pixels
+        from different labels would be merged. The function must handle this.
+        """
+        skeleton = np.zeros((20, 20), dtype=np.uint16)
+        # Two lines that touch diagonally
+        skeleton[9, 5:10] = 1  # Ends at (9, 9)
+        skeleton[10, 10:15] = 2  # Starts at (10, 10) - diagonal from (9, 9)
+
+        result = separate_touching_skeletons(skeleton)
+
+        # Diagonals ARE considered touching, so pixels should be removed
+        assert np.count_nonzero(result) < np.count_nonzero(skeleton)
+
+    def test_diagonal_separation_works(self):
+        """Test that diagonally touching skeletons become separate in skan."""
+        import skan
+
+        skeleton = np.zeros((20, 20), dtype=np.uint16)
+        # Two lines that touch diagonally
+        skeleton[9, 5:10] = 1
+        skeleton[10, 10:15] = 2
+
+        # Before separation: skan sees them as ONE skeleton
+        skel_before = skan.Skeleton(skeleton)
+        summary_before = skan.summarize(skel_before, separator="_")
+        assert (
+            summary_before["skeleton_id"].nunique() == 1
+        ), "Setup: should be merged"
+
+        # After separation: skan sees them as TWO skeletons
+        result = separate_touching_skeletons(skeleton)
+        skel_after = skan.Skeleton(result)
+        summary_after = skan.summarize(skel_after, separator="_")
+        assert (
+            summary_after["skeleton_id"].nunique() == 2
+        ), "Should be separated"

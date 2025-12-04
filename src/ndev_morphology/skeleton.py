@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "skeletonize_labels",
+    "separate_touching_skeletons",
     "exclude_region_from_skeleton",
 ]
 
@@ -53,6 +54,72 @@ def skeletonize_labels(labels: ArrayLike) -> np.ndarray:
     binary = labels > 0
     skeleton = morphology.skeletonize(binary)
     return (labels * skeleton).astype(labels.dtype)
+
+
+def separate_touching_skeletons(skeleton_labels: ArrayLike) -> np.ndarray:
+    """
+    Remove skeleton pixels where different labels touch.
+
+    This is useful when skeletonizing adjacent labeled regions that result in
+    touching skeletons. The function removes the minimal pixels needed to
+    separate connected components from different original labels.
+
+    Parameters
+    ----------
+    skeleton_labels : ArrayLike
+        Labeled skeleton image where each pixel value is the original label ID.
+        Typically the output of `skeletonize_labels`.
+
+    Returns
+    -------
+    np.ndarray
+        Skeleton with touching pixels removed. Pixels at label boundaries
+        are set to 0.
+
+    Notes
+    -----
+    For most biological images, skeletons rarely touch because objects are
+    naturally separated. This function handles the edge case where skeletons
+    from adjacent labels happen to be neighbors (e.g., touching cells).
+
+    This approach is much more efficient than eroding labels before
+    skeletonizing, as it only removes the 1-2 pixels at actual touching
+    boundaries rather than eroding all edges.
+
+    Examples
+    --------
+    >>> from ndev_morphology import skeletonize_labels, separate_touching_skeletons
+    >>> # Create labels that touch
+    >>> labels = np.zeros((10, 20), dtype=np.uint16)
+    >>> labels[:, :10] = 1
+    >>> labels[:, 10:] = 2
+    >>> # Skeletonize - skeletons may touch at boundary
+    >>> skeleton = skeletonize_labels(labels)
+    >>> # Separate touching skeletons
+    >>> separated = separate_touching_skeletons(skeleton)
+    """
+    skeleton_labels = np.asarray(skeleton_labels)
+    separated = skeleton_labels.copy()
+
+    # Use full connectivity (8-connected in 2D, 26-connected in 3D) to detect
+    # both orthogonal AND diagonal neighbors, matching skan's connectivity
+    structure = ndimage.generate_binary_structure(skeleton_labels.ndim, 2)
+
+    # Find pixels adjacent to a different nonzero label
+    for label_id in np.unique(skeleton_labels):
+        if label_id == 0:
+            continue
+
+        this_label = skeleton_labels == label_id
+        other_labels = (skeleton_labels > 0) & (skeleton_labels != label_id)
+
+        # Pixels of this label that touch other labels (including diagonals)
+        touching = this_label & ndimage.binary_dilation(
+            other_labels, structure=structure
+        )
+        separated[touching] = 0
+
+    return separated.astype(skeleton_labels.dtype)
 
 
 def exclude_region_from_skeleton(
