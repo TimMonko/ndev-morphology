@@ -3,6 +3,27 @@ display_name: ndev Morphology
 # use 'hidden' to remove plugin from napari hub search results
 visibility: public
 # see https://napari.org/stable/plugins/technical_references/manifest.html#fields for valid categories
-# categories: []
+categories: [Annotation, Segmentation]
 contributions:
   commands:
+    - id: ndev-morphology.refine_labels
+      title: Refine Labels
+      python_name: ndev_morphology.widgets:refine_labels_widget
+    - id: ndev-morphology.skeletonize_labels
+      title: Skeletonize Labels
+      python_name: ndev_morphology.widgets:skeletonize_labels_widget
+    - id: ndev-morphology.skeleton_to_shapes
+      title: Skeleton to Shapes
+      python_name: ndev_morphology.widgets:skeleton_to_shapes
+    - id: ndev-morphology.sholl_analysis
+      title: Sholl Analysis
+      python_name: ndev_morphology.widgets:sholl_analysis
+  widgets:
+    - command: ndev-morphology.refine_labels
+      display_name: Refine Labels
+    - command: ndev-morphology.skeletonize_labels
+      display_name: Skeletonize Labels
+    - command: ndev-morphology.skeleton_to_shapes
+      display_name: Skeleton to Shapes
+    - command: ndev-morphology.sholl_analysis
+      display_name: Sholl Analysis
