@@ -82,3 +82,8 @@ venv/
 
 # written by setuptools_scm
 **/_version.py
+
+# dev testing folders to keep clean commit history
+# will use examples/ if want to distribute
+notebooks/
+scripts/
