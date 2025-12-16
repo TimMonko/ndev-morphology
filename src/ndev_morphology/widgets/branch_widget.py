@@ -6,12 +6,17 @@ Provides interactive branch summarization with property-based coloring.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import skan
 from magicgui import magic_factory
 
 from .._geometry import skeleton_to_paths
 from ..branch import summarize_branches
+
+if TYPE_CHECKING:
+    import napari
 
 __all__ = ['branch_analysis']
 

@@ -6,11 +6,14 @@ Shows nodes (junctions/endpoints) and edges (branches) as separate layers.
 
 from __future__ import annotations
 
-from typing import List
+from typing import TYPE_CHECKING
 
 import numpy as np
 import skan
 from magicgui import magic_factory
+
+if TYPE_CHECKING:
+    import napari
 
 __all__ = ['skeleton_graph']
 
@@ -25,7 +28,7 @@ def skeleton_graph(
     skeleton_layer: napari.layers.Labels,
     node_size: float = 8.0,
     edge_width: float = 2.0,
-) -> List[napari.types.LayerDataTuple]:
+) -> list[napari.types.LayerDataTuple]:
     """
     Visualize skeleton as graph: nodes (junctions/endpoints) and edges (branches).
 
@@ -66,7 +69,7 @@ def skeleton_graph(
     node_coords = set()
     node_types = {}  # (y, x) -> 'junction' or 'endpoint'
 
-    for idx, row in branches.iterrows():
+    for _idx, row in branches.iterrows():
         # Source node
         src = (row['coord_src_0'], row['coord_src_1'])
         node_coords.add(src)
@@ -95,16 +98,22 @@ def skeleton_graph(
     # Convert to arrays
     nodes = np.array(list(node_coords))
 
+    # Colorblind-friendly colors (Wong 2011 palette)
+    # Vermillion for endpoints, Blue for junctions, Orange for mixed
+    COLOR_ENDPOINT = [0.84, 0.37, 0.0, 1.0]  # Vermillion
+    COLOR_JUNCTION = [0.0, 0.45, 0.70, 1.0]  # Blue
+    COLOR_MIXED = [0.90, 0.62, 0.0, 1.0]  # Orange
+
     # Color nodes by type
     node_colors = []
     for coord in node_coords:
         ntype = node_types.get(coord, 'unknown')
         if ntype == 'endpoint':
-            node_colors.append([1, 0, 0, 1])  # Red
+            node_colors.append(COLOR_ENDPOINT)
         elif ntype == 'junction':
-            node_colors.append([0, 1, 0, 1])  # Green
+            node_colors.append(COLOR_JUNCTION)
         else:
-            node_colors.append([1, 1, 0, 1])  # Yellow for mixed/unknown
+            node_colors.append(COLOR_MIXED)
 
     # Get edges as paths
     paths = []
@@ -162,7 +171,7 @@ def skeleton_graph(
     print(f'  Nodes: {len(nodes)}')
     print(f'  Edges (branches): {len(paths)}')
     print(f'  Connected components: {branches["skeleton_id"].nunique()}')
-    print('  Node colors: Red=endpoint, Green=junction, Yellow=mixed')
+    print('  Node colors: Vermillion=endpoint, Blue=junction, Orange=mixed')
     print('=' * 50)
 
     return layers

@@ -7,6 +7,8 @@ removing edge-touching labels, and connecting nearby fragments.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from magicgui import magic_factory
 
@@ -15,6 +17,9 @@ from ..labels import (
     exclude_labels_on_edges,
     filter_labels_by_size,
 )
+
+if TYPE_CHECKING:
+    import napari
 
 __all__ = ['refine_labels_widget']
 

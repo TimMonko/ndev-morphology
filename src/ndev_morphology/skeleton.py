@@ -20,6 +20,7 @@ __all__ = [
     'skeletonize_labels',
     'separate_touching_skeleton_labels',
     'exclude_region_from_skeleton',
+    'fill_skeleton_gaps',
 ]
 
 
@@ -167,3 +168,68 @@ def exclude_region_from_skeleton(
         mask = ndimage.binary_dilation(mask, iterations=dilation_iterations)
 
     return skeleton * ~mask
+
+
+def fill_skeleton_gaps(
+    skeleton: ArrayLike,
+    dilation_size: int = 2,
+) -> np.ndarray:
+    """
+    Fill small gaps in a skeleton by dilation and re-skeletonization.
+
+    This function bridges discontinuities in skeletons caused by
+    incomplete segmentation or thresholding artifacts.
+
+    Parameters
+    ----------
+    skeleton : ArrayLike
+        Binary skeleton image (or labeled - will be binarized).
+    dilation_size : int
+        Radius of disk structuring element for dilation.
+        Larger values bridge bigger gaps but may create artifacts
+        at junction points (small cycles).
+
+    Returns
+    -------
+    np.ndarray
+        Binary skeleton with gaps filled.
+
+    Warnings
+    --------
+    This operation creates small cycles at junction points because
+    dilation "fattens" the skeleton before re-skeletonizing.
+    Consider using `prune_short_branches(..., prune_cycles=True)`
+    after this function to remove unwanted cycles.
+
+    Notes
+    -----
+    For labeled skeletons, the output will be binary. To restore
+    labels, you can use the original label image to re-assign IDs
+    to the filled skeleton.
+
+    See Also
+    --------
+    connect_breaks_between_labels : Similar operation on labels (before skeletonization)
+
+    Examples
+    --------
+    >>> from ndev_morphology import fill_skeleton_gaps, prune_short_branches
+    >>> import skan
+    >>> # Fill gaps then remove cycles
+    >>> filled = fill_skeleton_gaps(skeleton, dilation_size=2)
+    >>> skel = skan.Skeleton(filled)
+    >>> pruned, _ = prune_short_branches(skel, prune_cycles=True)
+    """
+    from skimage.morphology import disk, skeletonize
+
+    skeleton = np.asarray(skeleton)
+    binary = skeleton.astype(bool)
+
+    # Dilate to bridge gaps
+    selem = disk(dilation_size)
+    dilated = ndimage.binary_dilation(binary, structure=selem)
+
+    # Re-skeletonize to get thin skeleton
+    filled = skeletonize(dilated)
+
+    return filled

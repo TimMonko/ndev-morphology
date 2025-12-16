@@ -7,12 +7,17 @@ as concentric shell shapes.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import skan
 from magicgui import magic_factory
 
 from .._geometry import sholl_shells_to_ellipses
 from ..sholl import compute_sholl_profile
+
+if TYPE_CHECKING:
+    import napari
 
 __all__ = ['sholl_analysis']
 

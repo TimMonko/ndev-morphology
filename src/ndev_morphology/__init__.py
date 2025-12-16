@@ -56,6 +56,13 @@ from .labels import (
     filter_labels_by_size,
 )
 
+# Pruning operations
+from .pruning import (
+    prune_short_branches,
+    prune_skeleton_to_image,
+    remove_isolated_cycles,
+)
+
 # Sholl analysis
 from .sholl import ShollResult, compute_sholl_profile
 
@@ -78,6 +85,10 @@ __all__ = [
     'filter_labels_by_size',
     'exclude_labels_on_edges',
     'connect_breaks_between_labels',
+    # Pruning
+    'prune_short_branches',
+    'remove_isolated_cycles',
+    'prune_skeleton_to_image',
     # Sholl
     'ShollResult',
     'compute_sholl_profile',

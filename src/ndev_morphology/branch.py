@@ -167,7 +167,6 @@ def _compute_path_intensities(
         stds.append(np.std(values))
 
     return np.array(means), np.array(stds)
-    return intensity_std
 
 
 def _compute_tortuosity_series(branches: pd.DataFrame) -> pd.Series:
@@ -263,7 +262,7 @@ def filter_branches_by_type(
     ... )
     """
     # Normalize to list of ints
-    if isinstance(branch_types, (int, BranchType)):
+    if isinstance(branch_types, int | BranchType):
         branch_types = [int(branch_types)]
     else:
         branch_types = [int(bt) for bt in branch_types]

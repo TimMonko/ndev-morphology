@@ -6,10 +6,13 @@ Provides interactive single-cell analysis with visualization.
 
 from __future__ import annotations
 
-from typing import List
+from typing import TYPE_CHECKING
 
 import numpy as np
 from magicgui import magic_factory
+
+if TYPE_CHECKING:
+    import napari
 
 __all__ = ['cell_analysis']
 
@@ -31,7 +34,7 @@ def cell_analysis(
     soma_labels: napari.layers.Labels | None = None,
     run_sholl: bool = True,
     sholl_step: float = 5.0,
-) -> List[napari.types.LayerDataTuple]:
+) -> list[napari.types.LayerDataTuple]:
     """
     Analyze a single labeled cell's morphology.
 

@@ -6,9 +6,14 @@ Provides label-aware skeletonization that preserves label identities.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from magicgui import magic_factory
 
 from ..skeleton import separate_touching_skeleton_labels, skeletonize_labels
+
+if TYPE_CHECKING:
+    import napari
 
 __all__ = ['skeletonize_labels_widget']
 

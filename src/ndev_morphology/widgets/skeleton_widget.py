@@ -6,11 +6,16 @@ Converts skeleton images to Shapes layers with branch properties.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import skan
 from magicgui import magic_factory
 
 from .._geometry import skeleton_to_paths
+
+if TYPE_CHECKING:
+    import napari
 
 __all__ = ['skeleton_to_shapes']
 
