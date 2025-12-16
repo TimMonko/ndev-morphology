@@ -55,7 +55,7 @@ dev = [
     "pytest-cov",
     "pre-commit",
     "napari[pyqt6]",
-    "ndev-sampledata",
+    "ndevio",  # for sample data
 ]
 
 [project.entry-points."napari.manifest"]

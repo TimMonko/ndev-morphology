@@ -7,20 +7,14 @@ removing edge-touching labels, and connecting nearby fragments.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-import napari.types
+import numpy as np
 from magicgui import magic_factory
-from napari.layers import Labels
 
 from ..labels import (
     connect_breaks_between_labels,
     exclude_labels_on_edges,
     filter_labels_by_size,
 )
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ['refine_labels_widget']
 
@@ -53,7 +47,7 @@ __all__ = ['refine_labels_widget']
     },
 )
 def refine_labels_widget(
-    labels: Labels,
+    labels: napari.layers.Labels,
     min_size: int = 0,
     max_size: int = 0,
     exclude_edges: bool = False,
@@ -100,8 +94,6 @@ def refine_labels_widget(
     - `exclude_labels_on_edges()`
     - `connect_breaks_between_labels()`
     """
-    import numpy as np
-
     result = np.asarray(labels.data).copy()
 
     # Apply operations in order

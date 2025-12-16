@@ -6,141 +6,78 @@ Converts skeleton images to Shapes layers with branch properties.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 import skan
 from magicgui import magic_factory
 
 from .._geometry import skeleton_to_paths
 
-if TYPE_CHECKING:
-    import napari.types
-
 __all__ = ['skeleton_to_shapes']
-
-
-# Available properties for coloring (from skan.summarize output)
-EDGE_COLOR_CHOICES = [
-    'branch_distance',
-    'euclidean_distance',
-    'branch_type',
-    'skeleton_id',
-    'path_id',
-]
-
-COLORMAP_CHOICES = [
-    'viridis',
-    'plasma',
-    'magma',
-    'inferno',
-    'turbo',
-    'hot',
-    'cool',
-]
 
 
 @magic_factory(
     call_button='Create Skeleton Shapes',
-    skeleton_image={'label': 'Skeleton Image'},
-    spacing_y={
-        'label': 'Spacing Y',
-        'min': 0.001,
-        'max': 100.0,
-        'step': 0.01,
-        'tooltip': 'Physical pixel spacing in Y. Use 1.0 for pixel units.',
-    },
-    spacing_x={
-        'label': 'Spacing X',
-        'min': 0.001,
-        'max': 100.0,
-        'step': 0.01,
-        'tooltip': 'Physical pixel spacing in X. Use 1.0 for pixel units.',
-    },
-    edge_color={
+    skeleton_layer={'label': 'Skeleton Layer'},
+    color_by={
         'label': 'Color by',
-        'choices': EDGE_COLOR_CHOICES,
-        'tooltip': 'Property to use for edge coloring',
-    },
-    edge_colormap={
-        'label': 'Colormap',
-        'choices': COLORMAP_CHOICES,
+        'choices': ['branch_distance', 'euclidean_distance', 'branch_type'],
+        'tooltip': 'Property to color branches by',
     },
     edge_width={
-        'label': 'Edge Width',
+        'label': 'Line Width',
         'min': 0.5,
         'max': 10.0,
         'step': 0.5,
     },
 )
 def skeleton_to_shapes(
-    skeleton_image: napari.types.LabelsData,
-    spacing_y: float = 1.0,
-    spacing_x: float = 1.0,
-    edge_color: str = 'branch_distance',
-    edge_colormap: str = 'viridis',
+    skeleton_layer: napari.layers.Labels,
+    color_by: str = 'branch_distance',
     edge_width: float = 2.0,
 ) -> napari.types.LayerDataTuple:
     """
-    Create a Shapes layer from a skeleton image.
-
-    Converts a binary or labeled skeleton image into a napari Shapes layer
-    where each branch is represented as a path. Branches can be colored by
-    various properties computed by skan.
+    Convert skeleton to Shapes layer with colored branches.
 
     Parameters
     ----------
-    skeleton_image : napari.types.LabelsData
-        Binary or labeled skeleton image. Non-zero pixels are skeleton.
-    spacing_y : float
-        Physical pixel spacing in Y dimension.
-    spacing_x : float
-        Physical pixel spacing in X dimension.
-    spacing : tuple of float
-        Physical pixel spacing (Y, X). Used for computing branch distances
-        in physical units.
-    edge_color : str
+    skeleton_layer : Labels
+        Skeleton image (from skeletonize_labels widget).
+    color_by : str
         Property to use for coloring branches.
-    edge_colormap : str
-        Colormap for branch coloring.
     edge_width : float
-        Width of skeleton path lines.
+        Width of branch lines.
 
     Returns
     -------
-    napari.types.LayerDataTuple
-        Tuple of (data, kwargs, layer_type) for napari to create the layer.
-
-    Examples
-    --------
-    In napari, this widget will appear in the Plugins menu. You can also
-    call it programmatically:
-
-    >>> from ndev_morphology.widgets import skeleton_to_shapes
-    >>> layer_data = skeleton_to_shapes(skeleton_image, spacing_y=0.2, spacing_x=0.2)
+    LayerDataTuple
+        Shapes layer with branches as paths.
     """
-    # Validate input
-    skeleton_arr = np.asarray(skeleton_image)
-    if not np.any(skeleton_arr):
-        raise ValueError('Skeleton image is empty (no non-zero pixels)')
+    skeleton_arr = np.asarray(skeleton_layer.data)
+    scale = skeleton_layer.scale
+    spacing = tuple(scale[-2:])
 
-    # Create skan Skeleton with spacing
-    spacing = (spacing_y, spacing_x)
+    if not np.any(skeleton_arr):
+        raise ValueError('Skeleton is empty')
+
+    # Create skan Skeleton
     skel = skan.Skeleton(skeleton_arr.astype(float), spacing=spacing)
 
-    # Convert to paths and properties
+    # Get paths and properties
     paths, properties = skeleton_to_paths(skel)
 
-    # Return LayerDataTuple
+    if not paths:
+        raise ValueError('No branches found in skeleton')
+
     return (
         paths,
         {
             'shape_type': 'path',
             'properties': properties,
-            'edge_color': edge_color,
-            'edge_colormap': edge_colormap,
+            'edge_color': color_by,
+            'edge_colormap': 'viridis',
             'edge_width': edge_width,
-            'name': f'skeleton ({edge_color})',
+            'name': f'{skeleton_layer.name}_shapes',
+            'scale': scale,
         },
         'shapes',
     )

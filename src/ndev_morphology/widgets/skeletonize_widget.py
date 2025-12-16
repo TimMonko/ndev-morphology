@@ -6,15 +6,9 @@ Provides label-aware skeletonization that preserves label identities.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-import napari.types
 from magicgui import magic_factory
 
 from ..skeleton import separate_touching_skeleton_labels, skeletonize_labels
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ['skeletonize_labels_widget']
 
@@ -31,7 +25,7 @@ __all__ = ['skeletonize_labels_widget']
     },
 )
 def skeletonize_labels_widget(
-    labels: napari.types.LabelsData,
+    labels: napari.layers.Labels,
     separate_touching: bool = True,
 ) -> napari.types.LayerDataTuple:
     """
@@ -61,7 +55,10 @@ def skeletonize_labels_widget(
     `labels_to_skeleton_shapes` widget if you want skeleton visualization
     as a Shapes layer.
     """
-    skeleton = skeletonize_labels(labels)
+    import numpy as np
+
+    data = np.asarray(labels.data)
+    skeleton = skeletonize_labels(data)
 
     if separate_touching:
         skeleton = separate_touching_skeleton_labels(skeleton)
@@ -69,7 +66,8 @@ def skeletonize_labels_widget(
     return (
         skeleton,
         {
-            'name': 'skeleton',
+            'name': f'{labels.name}_skeleton',
+            'scale': labels.scale,
         },
         'labels',
     )

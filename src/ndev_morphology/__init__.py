@@ -5,12 +5,14 @@ A library for skeleton analysis, Sholl analysis, and branch
 quantification. Designed for bioimage analysis of neuronal
 and other branching structures.
 
-Core Functions
---------------
-- Skeleton operations: skeletonize_labels, exclude_region_from_skeleton, separate_touching_skeleton_labels
-- Geometry utilities: skeleton_to_paths, sholl_shells_to_ellipses
-- Label operations: filter_labels_by_size, exclude_labels_on_edges, connect_breaks_between_labels
-- Sholl analysis: compute_sholl_profile, ShollResult
+Core Modules
+------------
+- skeleton: skeletonize_labels, exclude_region_from_skeleton, separate_touching_skeleton_labels
+- labels: filter_labels_by_size, exclude_labels_on_edges, connect_breaks_between_labels
+- sholl: compute_sholl_profile, ShollResult
+- branch: summarize_branches, BranchType, compute_tortuosity, filter_branches_by_type
+- soma: detect_soma_centroid, find_soma_node, get_label_centroid
+- analysis: analyze_single_cell, analyze_all_cells, CellAnalysisResult
 
 For interactive napari visualization, see the widgets subpackage.
 
@@ -18,6 +20,7 @@ Examples
 --------
 >>> import skan
 >>> from ndev_morphology import skeletonize_labels, compute_sholl_profile
+>>> from ndev_morphology import summarize_branches, analyze_single_cell
 >>> from ndev_morphology.widgets import skeleton_to_shapes, sholl_analysis
 """
 
@@ -26,9 +29,25 @@ try:
 except ImportError:
     __version__ = 'unknown'
 
-# Skeleton operations
 # Geometry utilities (for programmatic use)
 from ._geometry import sholl_shells_to_ellipses, skeleton_to_paths
+
+# Analysis pipeline
+from .analysis import (
+    CellAnalysisResult,
+    aggregate_branch_stats,
+    analyze_all_cells,
+    analyze_all_cells_generator,
+    analyze_single_cell,
+)
+
+# Branch analysis
+from .branch import (
+    BranchType,
+    compute_tortuosity,
+    filter_branches_by_type,
+    summarize_branches,
+)
 
 # Label operations
 from .labels import (
@@ -39,11 +58,16 @@ from .labels import (
 
 # Sholl analysis
 from .sholl import ShollResult, compute_sholl_profile
+
+# Skeleton operations
 from .skeleton import (
     exclude_region_from_skeleton,
     separate_touching_skeleton_labels,
     skeletonize_labels,
 )
+
+# Soma detection
+from .soma import detect_soma_centroid, find_soma_node, get_label_centroid
 
 __all__ = [
     # Skeleton
@@ -57,6 +81,21 @@ __all__ = [
     # Sholl
     'ShollResult',
     'compute_sholl_profile',
+    # Branch
+    'BranchType',
+    'summarize_branches',
+    'compute_tortuosity',
+    'filter_branches_by_type',
+    # Soma
+    'detect_soma_centroid',
+    'find_soma_node',
+    'get_label_centroid',
+    # Analysis
+    'CellAnalysisResult',
+    'analyze_single_cell',
+    'analyze_all_cells',
+    'analyze_all_cells_generator',
+    'aggregate_branch_stats',
     # Geometry
     'skeleton_to_paths',
     'sholl_shells_to_ellipses',

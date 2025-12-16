@@ -61,7 +61,8 @@ def skeleton_to_paths(
     paths = [skeleton.path_coordinates(i) for i in range(skeleton.n_paths)]
 
     # Get branch properties from skan
-    properties = skan.summarize(skeleton)
+    # Use separator='_' for consistent column names across skan versions
+    properties = skan.summarize(skeleton, separator='_')
 
     # Add path_id for coloring
     properties['path_id'] = np.arange(len(properties))

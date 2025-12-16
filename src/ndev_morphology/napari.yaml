@@ -1,8 +1,6 @@
 name: ndev-morphology
 display_name: ndev Morphology
-# use 'hidden' to remove plugin from napari hub search results
 visibility: public
-# see https://napari.org/stable/plugins/technical_references/manifest.html#fields for valid categories
 categories: [Annotation, Segmentation]
 contributions:
   commands:
@@ -15,9 +13,24 @@ contributions:
     - id: ndev-morphology.skeleton_to_shapes
       title: Skeleton to Shapes
       python_name: ndev_morphology.widgets:skeleton_to_shapes
+    - id: ndev-morphology.skeleton_graph
+      title: Skeleton Graph
+      python_name: ndev_morphology.widgets:skeleton_graph
     - id: ndev-morphology.sholl_analysis
       title: Sholl Analysis
       python_name: ndev_morphology.widgets:sholl_analysis
+    - id: ndev-morphology.soma_detection
+      title: Soma Detection
+      python_name: ndev_morphology.widgets:soma_detection
+    - id: ndev-morphology.branch_analysis
+      title: Branch Analysis
+      python_name: ndev_morphology.widgets:branch_analysis
+    - id: ndev-morphology.cell_analysis
+      title: Cell Analysis
+      python_name: ndev_morphology.widgets:cell_analysis
+    - id: ndev-morphology.batch_analysis
+      title: Batch Analysis
+      python_name: ndev_morphology.widgets:BatchAnalysisWidget
   widgets:
     - command: ndev-morphology.refine_labels
       display_name: Refine Labels
@@ -25,5 +38,15 @@ contributions:
       display_name: Skeletonize Labels
     - command: ndev-morphology.skeleton_to_shapes
       display_name: Skeleton to Shapes
+    - command: ndev-morphology.skeleton_graph
+      display_name: Skeleton Graph
     - command: ndev-morphology.sholl_analysis
       display_name: Sholl Analysis
+    - command: ndev-morphology.soma_detection
+      display_name: Soma Detection
+    - command: ndev-morphology.branch_analysis
+      display_name: Branch Analysis
+    - command: ndev-morphology.cell_analysis
+      display_name: Cell Analysis
+    - command: ndev-morphology.batch_analysis
+      display_name: Batch Analysis
