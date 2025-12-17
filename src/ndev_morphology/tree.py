@@ -696,53 +696,68 @@ def compute_strahler_order(tree: DirectedTree) -> dict[tuple[int, int], int]:
     Strahler order is commonly used in hydrology and neuroscience to
     describe branching complexity. Higher orders indicate more complex
     upstream structure.
+
+    The algorithm works by:
+    1. Assigning order 1 to all terminal edges (edges leading to tips)
+    2. Processing nodes from tips toward root
+    3. At each junction: if children have same max order, parent gets max+1;
+       otherwise parent gets the max order
     """
-    # We need to process in reverse topological order (tips first)
     orders = {}
 
-    # Get reverse topological order
-    try:
-        topo_order = list(nx.topological_sort(tree.graph))
-    except nx.NetworkXUnfeasible:
-        # Graph has cycles - shouldn't happen for a tree
-        return orders
+    # First, identify all edges and their "downstream" (toward tips) structure
+    # In a directed tree from root, edges point AWAY from root toward tips
 
-    # Process from tips (end of topo order) to root
-    for node in reversed(topo_order):
-        out_edges = list(tree.graph.out_edges(node))
+    # Get all edges
+    all_edges = list(tree.graph.edges())
 
-        if not out_edges:
-            # Tip node - no outgoing edges to label
+    # Assign order 1 to terminal edges (edges where target is a tip)
+    for u, v in all_edges:
+        if tree.graph.out_degree(v) == 0:
+            # v is a tip, so this edge is terminal
+            orders[(u, v)] = 1
+
+    # Now propagate orders upward (from tips toward root)
+    # Process in reverse BFS order (tips first, then their parents, etc.)
+    # We need to process a node only after all its children are processed
+
+    # Get nodes in reverse BFS order
+    bfs_order = list(nx.bfs_tree(tree.graph, tree.root_node).nodes())
+
+    # Process from tips toward root (reverse order)
+    for node in reversed(bfs_order):
+        if node == tree.root_node:
             continue
 
-        # Get orders of child edges
-        child_orders = []
-        for _, child in out_edges:
-            # Find edge from this node to child
-            child_out = list(tree.graph.out_edges(child))
-            if child_out:
-                child_edge_orders = [orders.get(e, 1) for e in child_out]
-                child_orders.append(
-                    max(child_edge_orders) if child_edge_orders else 1
-                )
-            else:
-                # Child is a tip
-                child_orders.append(1)
+        # Get the edge FROM parent TO this node
+        in_edges = [(u, v) for u, v in all_edges if v == node]
+        if not in_edges:
+            continue
 
-        # Assign Strahler order to edges from this node
-        for edge in out_edges:
-            if len(child_orders) == 0:
-                orders[edge] = 1
-            elif len(child_orders) == 1:
-                orders[edge] = child_orders[0]
+        parent_edge = in_edges[0]  # Should be exactly one in a tree
+        if parent_edge in orders:
+            continue  # Already assigned (terminal edge)
+
+        # Get orders of edges FROM this node to its children
+        child_edge_orders = []
+        for u, v in all_edges:
+            if u == node and (u, v) in orders:
+                child_edge_orders.append(orders[(u, v)])
+
+        if not child_edge_orders:
+            # This shouldn't happen in a well-formed tree
+            orders[parent_edge] = 1
+        elif len(child_edge_orders) == 1:
+            # Single child - inherit order
+            orders[parent_edge] = child_edge_orders[0]
+        else:
+            # Multiple children - Strahler rule
+            max_order = max(child_edge_orders)
+            count_max = child_edge_orders.count(max_order)
+            if count_max >= 2:
+                orders[parent_edge] = max_order + 1
             else:
-                # Multiple children - Strahler rules
-                max_child = max(child_orders)
-                count_max = child_orders.count(max_child)
-                if count_max >= 2:
-                    orders[edge] = max_child + 1
-                else:
-                    orders[edge] = max_child
+                orders[parent_edge] = max_order
 
     return orders
 
