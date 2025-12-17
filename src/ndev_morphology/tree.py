@@ -42,6 +42,7 @@ __all__ = [
     'DirectedTree',
     'BranchOrder',
     'create_directed_tree',
+    'create_directed_trees_from_soma',
     'compute_branch_order',
     'compute_strahler_order',
     'find_longest_path',
@@ -397,6 +398,129 @@ def _copy_edge_attributes(
                 first_edge = list(edge_data.values())[0]
                 if 'path' in first_edge:
                     directed[u][v]['path'] = first_edge['path']
+
+
+def create_directed_trees_from_soma(
+    skeleton_image: ArrayLike,
+    soma_mask: ArrayLike,
+    soma_centroid: ArrayLike,
+    *,
+    spacing: tuple[float, ...] = (1.0, 1.0),
+    dilation_iterations: int = 2,
+) -> list[DirectedTree]:
+    """
+    Create directed trees for all branches radiating from a soma.
+
+    This function handles the case where multiple skeleton branches
+    radiate outward from a soma region. It:
+
+    1. Excludes the soma region from the skeleton (creating disconnected fragments)
+    2. For each fragment, finds the node closest to the soma as its root
+    3. Creates a directed tree for each fragment
+
+    Parameters
+    ----------
+    skeleton_image : ArrayLike
+        Binary or labeled skeleton image.
+    soma_mask : ArrayLike
+        Binary mask of the soma region. This region will be excluded
+        from the skeleton before analysis.
+    soma_centroid : ArrayLike
+        Centroid of the soma (y, x) or (z, y, x). Used to find root nodes.
+    spacing : tuple of float, optional
+        Physical pixel spacing (default: (1.0, 1.0)).
+    dilation_iterations : int, optional
+        How much to dilate the soma mask before exclusion (default: 2).
+        This ensures clean separation of branches.
+
+    Returns
+    -------
+    list of DirectedTree
+        One DirectedTree for each disconnected skeleton fragment radiating
+        from the soma. Empty list if no skeleton fragments found.
+
+    Examples
+    --------
+    >>> from ndev_morphology.tree import create_directed_trees_from_soma
+    >>> # skeleton_image: binary skeleton of a neuron
+    >>> # soma_mask: binary mask of the cell body
+    >>> # soma_centroid: (y, x) center of the soma
+    >>> trees = create_directed_trees_from_soma(
+    ...     skeleton_image, soma_mask, soma_centroid,
+    ...     spacing=(0.2, 0.2), dilation_iterations=3
+    ... )
+    >>> print(f"Found {len(trees)} branches radiating from soma")
+    >>> for i, tree in enumerate(trees):
+    ...     print(f"  Branch {i+1}: {tree.n_tips} tips, order {tree.n_junctions} junctions")
+
+    Notes
+    -----
+    This function is designed for the common neuroscience case where:
+    - A neuron has a central cell body (soma)
+    - Multiple dendrites/axons radiate outward from the soma
+    - Each radiating branch should be analyzed as a separate tree
+    - All branches belong to the same neuron (same label_id)
+    """
+    from .skeleton import exclude_region_from_skeleton
+
+    skeleton_image = np.asarray(skeleton_image)
+    soma_mask = np.asarray(soma_mask).astype(bool)
+    soma_centroid = np.asarray(soma_centroid)
+
+    # Exclude soma region from skeleton
+    skeleton_no_soma = exclude_region_from_skeleton(
+        skeleton_image, soma_mask, dilation_iterations=dilation_iterations
+    )
+
+    # Check if anything remains
+    if not np.any(skeleton_no_soma):
+        return []
+
+    # Create skan skeleton from the remaining fragments
+    # Convert to binary first (in case it was labeled)
+    skeleton_binary = (skeleton_no_soma > 0).astype(np.uint8)
+    skel = skan.Skeleton(skeleton_binary, spacing=spacing)
+
+    if skel.n_paths == 0:
+        return []
+
+    # Get summary and undirected graph
+    summary = skan.summarize(skel, separator='_')
+    undirected = skeleton_to_nx(skel, summary)
+
+    # Find connected components - each is a separate tree
+    components = list(nx.connected_components(undirected))
+
+    trees = []
+    for component_nodes in components:
+        if len(component_nodes) < 2:
+            # Skip single-node components
+            continue
+
+        # Find the node in this component closest to soma centroid
+        component_nodes_list = list(component_nodes)
+        node_coords = skel.coordinates[component_nodes_list]
+        distances = np.linalg.norm(node_coords - soma_centroid, axis=1)
+        root_idx = np.argmin(distances)
+        root_node = component_nodes_list[root_idx]
+
+        # Create directed tree for this component
+        directed = nx.bfs_tree(undirected.subgraph(component_nodes), root_node)
+
+        # Copy edge attributes
+        _copy_edge_attributes(undirected, directed, summary)
+
+        tree = DirectedTree(
+            graph=directed,
+            root_node=root_node,
+            root_coords=soma_centroid,
+            skeleton=skel,
+            summary=summary,
+            undirected_graph=undirected,
+        )
+        trees.append(tree)
+
+    return trees
 
 
 def compute_branch_order(tree: DirectedTree) -> dict[tuple[int, int], int]:

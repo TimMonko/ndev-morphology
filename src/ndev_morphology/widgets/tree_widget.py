@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-import skan
 from magicgui import magic_factory
 
 if TYPE_CHECKING:
@@ -29,79 +28,32 @@ BRANCH_ORDER_COLORS = {
 }
 
 
-def _get_skeleton_id_for_soma(
-    skeleton_arr: np.ndarray,
-    soma_coord: np.ndarray,
-    search_radius: int = 50,
-) -> int | None:
-    """
-    Find the skeleton label ID that the soma connects to.
-
-    Searches outward from the soma centroid to find the nearest skeleton
-    pixel and returns its label value.
-
-    Parameters
-    ----------
-    skeleton_arr : np.ndarray
-        Labeled skeleton image (each cell has unique label).
-    soma_coord : np.ndarray
-        Soma centroid coordinates (y, x) or (z, y, x).
-    search_radius : int
-        Maximum distance to search for skeleton pixels.
-
-    Returns
-    -------
-    int or None
-        The skeleton label ID, or None if no skeleton found nearby.
-    """
-    # Create distance transform from soma point
-    ndim = skeleton_arr.ndim
-    soma_int = tuple(int(c) for c in soma_coord[-ndim:])
-
-    # Check if soma is within bounds
-    for i, c in enumerate(soma_int):
-        if c < 0 or c >= skeleton_arr.shape[i]:
-            return None
-
-    # Search in expanding circles/spheres
-    for radius in range(1, search_radius + 1):
-        # Create a mask for points at approximately this radius
-        slices = []
-        for i, c in enumerate(soma_int):
-            start = max(0, c - radius)
-            stop = min(skeleton_arr.shape[i], c + radius + 1)
-            slices.append(slice(start, stop))
-
-        region = skeleton_arr[tuple(slices)]
-        if np.any(region > 0):
-            # Found skeleton pixels - return the most common label
-            labels_found = region[region > 0]
-            # Return the label closest to the soma
-            # (for now, just return most common in the region)
-            unique, counts = np.unique(labels_found, return_counts=True)
-            return int(unique[np.argmax(counts)])
-
-    return None
-
-
 @magic_factory(
     call_button='Analyze Tree',
     skeleton_layer={
         'label': 'Skeleton Layer',
-        'tooltip': 'Labeled skeleton from skeletonize_labels widget.',
+        'tooltip': 'Binary or labeled skeleton image.',
     },
-    soma_points={
-        'label': 'Soma Points',
-        'nullable': True,
+    soma_labels_layer={
+        'label': 'Soma Labels',
         'tooltip': (
-            'Points layer with soma centroids. Should have label_id property '
-            'from Soma Detection widget.'
+            'Labels layer containing soma/cell body regions. '
+            'Each unique label is analyzed separately.'
         ),
     },
-    soma_index={
-        'label': 'Soma Index',
+    soma_label_id={
+        'label': 'Soma Label ID',
+        'min': 1,
+        'tooltip': 'Which soma label to analyze (1 = first label).',
+    },
+    dilation_iterations={
+        'label': 'Soma Exclusion Dilation',
         'min': 0,
-        'tooltip': 'Which soma point to analyze (0 = first point).',
+        'max': 20,
+        'tooltip': (
+            'Pixels to dilate soma mask before excluding from skeleton. '
+            'Larger values create cleaner separation of branches.'
+        ),
     },
     color_by={
         'label': 'Color by',
@@ -112,122 +64,90 @@ def _get_skeleton_id_for_soma(
 )
 def directed_tree_analysis(
     skeleton_layer: napari.layers.Labels,
-    soma_points: napari.layers.Points | None = None,
-    soma_index: int = 0,
+    soma_labels_layer: napari.layers.Labels,
+    soma_label_id: int = 1,
+    dilation_iterations: int = 3,
     color_by: str = 'branch_order',
     edge_width: float = 3.0,
 ) -> list[napari.types.LayerDataTuple]:
     """
-    Analyze skeleton as a directed tree from soma.
+    Analyze skeleton as directed trees radiating from a soma.
 
-    Creates a directed tree rooted at the soma position, then visualizes
-    branches colored by their order (primary, secondary, etc.) or other
-    directional properties.
+    This widget handles the common neuroscience case where multiple
+    dendrites/axons radiate outward from a central cell body (soma).
+    Each radiating branch is analyzed as a separate directed tree.
 
-    This widget matches the soma to the correct skeleton component using
-    either the soma's label_id property or by finding the nearest skeleton.
+    The workflow is:
+    1. Exclude the soma region from the skeleton (creating disconnected fragments)
+    2. For each fragment, find the node closest to soma as its root
+    3. Analyze each fragment as a directed tree
+    4. Aggregate statistics for all trees belonging to the neuron
 
     Parameters
     ----------
     skeleton_layer : Labels
-        Labeled skeleton image (from skeletonize_labels widget).
-        Each cell should have a unique label value.
-    soma_points : Points, optional
-        Points layer with soma centroids. Should have 'label_id' property
-        from the Soma Detection widget.
-    soma_index : int
-        Which soma point to analyze (0-indexed).
+        Binary or labeled skeleton image.
+    soma_labels_layer : Labels
+        Labels layer containing soma/cell body regions.
+    soma_label_id : int
+        Which soma label to analyze (1 = first label).
+    dilation_iterations : int
+        How much to dilate soma mask before exclusion.
     color_by : str
-        Property to use for coloring.
+        Property to use for coloring branches.
     edge_width : float
         Width of branch lines.
 
     Returns
     -------
     list of LayerDataTuple
-        Shapes layer with colored branches, Points layer for soma.
+        Shapes layer with colored branches, Points layer for soma centroid.
     """
+    from scipy import ndimage as ndi
+
     from ..tree import (
-        create_directed_tree,
+        compute_branch_order,
+        compute_strahler_order,
+        create_directed_trees_from_soma,
         find_longest_path,
-        summarize_directed_tree,
     )
 
     skeleton_arr = np.asarray(skeleton_layer.data)
+    soma_labels_arr = np.asarray(soma_labels_layer.data)
     scale = skeleton_layer.scale
     spacing = tuple(scale[-2:])
 
     if not np.any(skeleton_arr):
         raise ValueError('Skeleton is empty')
 
-    # Get soma coordinates
-    if soma_points is None:
+    if not np.any(soma_labels_arr == soma_label_id):
         raise ValueError(
-            'Soma points layer required. Use Soma Detection widget first.'
+            f'Soma label {soma_label_id} not found in soma labels layer'
         )
 
-    soma_data = np.asarray(soma_points.data)
-    if len(soma_data) == 0:
-        raise ValueError('Soma points layer is empty')
+    # Create binary mask for the selected soma
+    soma_mask = soma_labels_arr == soma_label_id
 
-    if soma_index >= len(soma_data):
-        raise ValueError(
-            f'Soma index {soma_index} out of range (only {len(soma_data)} points)'
-        )
+    # Get soma centroid
+    soma_centroid = ndi.center_of_mass(soma_mask)
+    soma_centroid = np.array(soma_centroid)
 
-    # Get the selected soma point
-    soma_coords_world = soma_data[soma_index]
-
-    # Convert to pixel coordinates if needed
-    soma_scale = soma_points.scale
-    if soma_scale is not None and not np.allclose(soma_scale, 1.0):
-        # Points are in world coordinates, convert to pixel
-        soma_coords = soma_coords_world / np.array(
-            soma_scale[-len(soma_coords_world) :]
-        )
-    else:
-        soma_coords = soma_coords_world.copy()
-
-    # Try to get skeleton_id from soma properties
-    skeleton_id = None
-    if hasattr(soma_points, 'properties') and soma_points.properties:
-        props = soma_points.properties
-        if 'label_id' in props:
-            label_ids = props['label_id']
-            if (
-                hasattr(label_ids, '__getitem__')
-                and len(label_ids) > soma_index
-            ):
-                skeleton_id = int(label_ids[soma_index])
-                print(f'Using label_id={skeleton_id} from soma properties')
-
-    # If no label_id, try to find skeleton by proximity
-    if skeleton_id is None:
-        skeleton_id = _get_skeleton_id_for_soma(skeleton_arr, soma_coords)
-        if skeleton_id is not None:
-            print(f'Found skeleton_id={skeleton_id} near soma position')
-        else:
-            print(
-                'Warning: Could not determine skeleton_id, using closest node'
-            )
-
-    # Create skan skeleton from the full labeled image
-    # skan will treat each unique label as a separate skeleton
-    skel = skan.Skeleton(skeleton_arr.astype(float), spacing=spacing)
-    summary = skan.summarize(skel, separator='_')
-
-    # Create directed tree for the specific skeleton
-    tree = create_directed_tree(
-        skel, soma_coords, summary=summary, skeleton_id=skeleton_id
+    # Create directed trees for all branches radiating from this soma
+    trees = create_directed_trees_from_soma(
+        skeleton_image=skeleton_arr,
+        soma_mask=soma_mask,
+        soma_centroid=soma_centroid,
+        spacing=spacing,
+        dilation_iterations=dilation_iterations,
     )
 
-    # Get extended summary with directional info
-    dir_summary = summarize_directed_tree(tree)
+    if not trees:
+        raise ValueError(
+            'No skeleton branches found radiating from soma. '
+            'Try reducing dilation_iterations or check skeleton/soma overlap.'
+        )
 
-    # Find longest path (axon length)
-    longest_path, axon_length = find_longest_path(tree)
-
-    # Build paths for visualization - only for the selected skeleton
+    # Build paths for visualization from all trees
     paths = []
     properties = {
         'branch_order': [],
@@ -235,80 +155,92 @@ def directed_tree_analysis(
         'distance_from_root': [],
         'branch_distance': [],
         'is_terminal': [],
-        'in_tree': [],
-        'skeleton_id': [],
+        'tree_id': [],  # Which tree (radiating branch) this path belongs to
     }
 
-    for i in range(skel.n_paths):
-        coords = skel.path_coordinates(i)
-        if len(coords) >= 2:
-            # Get properties from directed summary
-            if i < len(dir_summary):
-                row = dir_summary.iloc[i]
-                row_skel_id = int(row.get('skeleton_id', -1))
+    total_branches = 0
+    total_tips = 0
+    total_junctions = 0
+    max_path_length = 0.0
+    order_distribution = {}
 
-                # Only include paths from the selected skeleton or mark others
-                paths.append(coords)
-                properties['skeleton_id'].append(row_skel_id)
+    for tree_idx, tree in enumerate(trees):
+        # Compute orders for this tree
+        branch_orders = compute_branch_order(tree)
+        strahler_orders = compute_strahler_order(tree)
 
-                in_tree = bool(row.get('in_tree', False))
-                properties['in_tree'].append(in_tree)
+        # Find longest path in this tree
+        _, path_length = find_longest_path(tree)
+        max_path_length = max(max_path_length, path_length)
 
-                if in_tree:
-                    properties['branch_order'].append(
-                        int(row.get('branch_order', 0))
-                    )
-                    properties['strahler_order'].append(
-                        int(row.get('strahler_order', 0))
-                    )
-                    dist = row.get('distance_from_root', 0.0)
-                    properties['distance_from_root'].append(
-                        0.0 if np.isnan(dist) else float(dist)
-                    )
-                else:
-                    properties['branch_order'].append(0)
-                    properties['strahler_order'].append(0)
-                    properties['distance_from_root'].append(0.0)
+        total_tips += tree.n_tips
+        total_junctions += tree.n_junctions
 
-                properties['branch_distance'].append(
-                    float(row.get('branch_distance', 0))
-                )
-                properties['is_terminal'].append(
-                    bool(row.get('is_terminal', False))
-                )
+        # Compute distance from root for each node
+        node_distances = {}
+        for node in tree.graph.nodes():
+            node_distances[node] = tree.distance_to_node(node)
+
+        # Add paths from this tree
+        for u, v in tree.graph.edges():
+            edge_data = tree.graph.get_edge_data(u, v)
+            branch_dist = edge_data.get('branch_distance', 0.0)
+
+            # Get path coordinates for this edge
+            # skan stores path coordinates - we need to extract them
+            path_idx = edge_data.get('summary_index')
+            if path_idx is not None and path_idx < tree.skeleton.n_paths:
+                coords = tree.skeleton.path_coordinates(path_idx)
             else:
+                # Fallback: create simple line between nodes
+                coords = np.array(
+                    [
+                        tree.skeleton.coordinates[u],
+                        tree.skeleton.coordinates[v],
+                    ]
+                )
+
+            if len(coords) >= 2:
                 paths.append(coords)
-                properties['branch_order'].append(0)
-                properties['strahler_order'].append(0)
-                properties['distance_from_root'].append(0.0)
-                properties['branch_distance'].append(0.0)
-                properties['is_terminal'].append(False)
-                properties['in_tree'].append(False)
-                properties['skeleton_id'].append(-1)
+                order = branch_orders.get((u, v), 0)
+                properties['branch_order'].append(order)
+                properties['strahler_order'].append(
+                    strahler_orders.get((u, v), 0)
+                )
+                properties['distance_from_root'].append(
+                    node_distances.get(u, 0.0)
+                )
+                properties['branch_distance'].append(branch_dist)
+                properties['is_terminal'].append(tree.graph.out_degree(v) == 0)
+                properties['tree_id'].append(tree_idx)
+
+                total_branches += 1
+                order_distribution[order] = (
+                    order_distribution.get(order, 0) + 1
+                )
 
     layers = []
 
     # Branches layer
     if paths:
-        # Color by selected property
         if color_by == 'branch_order':
             # Use categorical colors for orders
             edge_colors = []
-            for i, order in enumerate(properties['branch_order']):
-                if not properties['in_tree'][i]:
-                    # Branches not connected to soma are gray
-                    edge_colors.append(BRANCH_ORDER_COLORS[0])
-                else:
-                    color = BRANCH_ORDER_COLORS.get(
-                        order, BRANCH_ORDER_COLORS[0]
-                    )
-                    edge_colors.append(color)
+            for order in properties['branch_order']:
+                color = BRANCH_ORDER_COLORS.get(
+                    order, BRANCH_ORDER_COLORS.get(5)
+                )
+                if order > 5:
+                    # Cycle through colors for higher orders
+                    cycle_order = ((order - 1) % 5) + 1
+                    color = BRANCH_ORDER_COLORS.get(cycle_order)
+                edge_colors.append(color)
 
             layers.append(
                 (
                     paths,
                     {
-                        'name': f'Directed Tree (cell {skeleton_id})',
+                        'name': f'Directed Trees (soma {soma_label_id})',
                         'shape_type': 'path',
                         'properties': properties,
                         'edge_color': edge_colors,
@@ -320,12 +252,11 @@ def directed_tree_analysis(
             )
         else:
             # Use colormap for continuous properties
-            # For branches not in tree, set to 0
             layers.append(
                 (
                     paths,
                     {
-                        'name': f'Directed Tree (cell {skeleton_id})',
+                        'name': f'Directed Trees (soma {soma_label_id})',
                         'shape_type': 'path',
                         'properties': properties,
                         'edge_color': color_by,
@@ -337,48 +268,44 @@ def directed_tree_analysis(
                 )
             )
 
-    # Soma marker (larger, distinct) - use actual root node coordinates
-    # These are already in physical units from skan
-    root_coords_physical = tree.skeleton.coordinates[tree.root_node]
+    # Soma centroid marker
+    soma_centroid_scaled = soma_centroid * np.array(
+        scale[-len(soma_centroid) :]
+    )
     layers.append(
         (
-            np.array([root_coords_physical]),
+            np.array([soma_centroid_scaled]),
             {
-                'name': f'Soma Root (cell {skeleton_id})',
+                'name': f'Soma Centroid (label {soma_label_id})',
                 'size': 15,
                 'face_color': [0.84, 0.37, 0.0, 1.0],  # Vermillion
                 'border_color': 'white',
                 'border_width': 0.2,
                 'symbol': 'star',
-                'scale': scale,
+                'scale': (1.0,) * len(scale),  # Already scaled
             },
             'points',
         )
     )
 
     # Print summary
-    n_in_tree = sum(properties['in_tree'])
-    n_total = len(properties['in_tree'])
     print('=' * 60)
-    print(f'Directed Tree Analysis - Cell {skeleton_id}')
+    print(f'Directed Tree Analysis - Soma {soma_label_id}')
     print('=' * 60)
-    print(f'  Root node: {tree.root_node}')
-    print(f'  Root coords: {root_coords_physical}')
-    print(f'  Branches in tree: {n_in_tree} / {n_total}')
-    print(f'  Primary branches: {len(tree.primary_branches)}')
-    print(f'  Tips (endpoints): {tree.n_tips}')
-    print(f'  Junctions: {tree.n_junctions}')
-    print(f'  Longest path length: {axon_length:.2f}')
+    print(f'  Soma centroid: ({soma_centroid[0]:.1f}, {soma_centroid[1]:.1f})')
+    print(f'  Dilation applied: {dilation_iterations} pixels')
+    print(f'  Radiating branches (trees): {len(trees)}')
+    print(f'  Total branches: {total_branches}')
+    print(f'  Total tips: {total_tips}')
+    print(f'  Total junctions: {total_junctions}')
+    print(f'  Longest path length: {max_path_length:.2f}')
     print()
     print('Branch Order Distribution:')
-    for order in sorted(set(properties['branch_order'])):
+    for order in sorted(order_distribution.keys()):
         if order > 0:
-            count = properties['branch_order'].count(order)
+            count = order_distribution[order]
             print(f'  Order {order}: {count} branches')
     print()
-    if n_in_tree < n_total:
-        n_other = n_total - n_in_tree
-        print(f'Note: {n_other} branches from other cells (gray)')
     print('Colors: Blue=1°, Orange=2°, Green=3°, Purple=4°, Yellow=5°')
     print('=' * 60)
 

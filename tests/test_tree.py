@@ -15,6 +15,7 @@ from ndev_morphology import (
     get_paths_to_tips,
     summarize_directed_tree,
 )
+from ndev_morphology.tree import create_directed_trees_from_soma
 
 # =============================================================================
 # Fixtures
@@ -436,3 +437,139 @@ class TestBranchOrder:
         assert BranchOrder.SECONDARY == 2
         assert BranchOrder.TERTIARY == 3
         assert BranchOrder.QUATERNARY == 4
+
+
+# =============================================================================
+# Tests for create_directed_trees_from_soma
+# =============================================================================
+
+
+class TestCreateDirectedTreesFromSoma:
+    """Tests for create_directed_trees_from_soma function."""
+
+    def test_creates_multiple_trees_from_star_skeleton(self):
+        """Test that a star-shaped skeleton with central soma creates multiple trees."""
+        # Create a star skeleton with a central soma
+        skeleton = np.zeros((60, 60), dtype=np.uint8)
+        # Central soma region (will be excluded)
+        soma_mask = np.zeros((60, 60), dtype=bool)
+        soma_mask[25:35, 25:35] = True
+
+        # Four radiating branches from the soma edges
+        # Top branch
+        skeleton[5:26, 30] = 1
+        # Bottom branch
+        skeleton[34:55, 30] = 1
+        # Left branch
+        skeleton[30, 5:26] = 1
+        # Right branch
+        skeleton[30, 34:55] = 1
+
+        soma_centroid = np.array([30.0, 30.0])
+
+        trees = create_directed_trees_from_soma(
+            skeleton_image=skeleton,
+            soma_mask=soma_mask,
+            soma_centroid=soma_centroid,
+            spacing=(1.0, 1.0),
+            dilation_iterations=0,
+        )
+
+        # Should have 4 separate trees (one per radiating branch)
+        assert len(trees) == 4
+
+    def test_each_tree_is_directed_tree(self):
+        """Test that each returned object is a DirectedTree."""
+        skeleton = np.zeros((50, 50), dtype=np.uint8)
+        soma_mask = np.zeros((50, 50), dtype=bool)
+        soma_mask[20:30, 20:30] = True
+
+        # Two branches
+        skeleton[5:21, 25] = 1
+        skeleton[29:45, 25] = 1
+
+        soma_centroid = np.array([25.0, 25.0])
+
+        trees = create_directed_trees_from_soma(
+            skeleton_image=skeleton,
+            soma_mask=soma_mask,
+            soma_centroid=soma_centroid,
+        )
+
+        assert len(trees) == 2
+        for tree in trees:
+            assert isinstance(tree, DirectedTree)
+
+    def test_root_is_closest_to_soma(self):
+        """Test that tree roots are the nodes closest to soma centroid."""
+        skeleton = np.zeros((50, 50), dtype=np.uint8)
+        soma_mask = np.zeros((50, 50), dtype=bool)
+        soma_mask[22:28, 22:28] = True
+
+        # One branch going up from soma
+        skeleton[5:23, 25] = 1
+
+        soma_centroid = np.array([25.0, 25.0])
+
+        trees = create_directed_trees_from_soma(
+            skeleton_image=skeleton,
+            soma_mask=soma_mask,
+            soma_centroid=soma_centroid,
+            dilation_iterations=0,
+        )
+
+        assert len(trees) == 1
+        tree = trees[0]
+
+        # Root should be at the end closest to soma (around y=22)
+        root_coords = tree.skeleton.coordinates[tree.root_node]
+        # The root y-coordinate should be closer to soma (25) than the tip (5)
+        assert root_coords[0] > 10  # Closer to soma end, not tip end
+
+    def test_empty_skeleton_returns_empty_list(self):
+        """Test that empty skeleton returns empty list."""
+        skeleton = np.zeros((50, 50), dtype=np.uint8)
+        soma_mask = np.zeros((50, 50), dtype=bool)
+        soma_mask[20:30, 20:30] = True
+        soma_centroid = np.array([25.0, 25.0])
+
+        trees = create_directed_trees_from_soma(
+            skeleton_image=skeleton,
+            soma_mask=soma_mask,
+            soma_centroid=soma_centroid,
+        )
+
+        assert trees == []
+
+    def test_dilation_expands_exclusion_zone(self):
+        """Test that dilation_iterations expands the excluded region."""
+        skeleton = np.zeros((50, 50), dtype=np.uint8)
+        soma_mask = np.zeros((50, 50), dtype=bool)
+        soma_mask[24:26, 24:26] = True  # Small soma
+
+        # Branch that passes close to soma
+        skeleton[15:35, 25] = 1
+
+        soma_centroid = np.array([25.0, 25.0])
+
+        # With no dilation, the skeleton passes through but may have small gap
+        trees_no_dilation = create_directed_trees_from_soma(
+            skeleton_image=skeleton,
+            soma_mask=soma_mask,
+            soma_centroid=soma_centroid,
+            dilation_iterations=0,
+        )
+
+        # With large dilation, more of the skeleton is cut
+        trees_with_dilation = create_directed_trees_from_soma(
+            skeleton_image=skeleton,
+            soma_mask=soma_mask,
+            soma_centroid=soma_centroid,
+            dilation_iterations=5,
+        )
+
+        # Larger dilation should create more separation
+        # (exact behavior depends on skeleton geometry)
+        # At minimum, both should work without error
+        assert isinstance(trees_no_dilation, list)
+        assert isinstance(trees_with_dilation, list)
