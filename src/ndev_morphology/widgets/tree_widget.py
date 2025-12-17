@@ -132,13 +132,47 @@ def directed_tree_analysis(
     soma_centroid = ndi.center_of_mass(soma_mask)
     soma_centroid = np.array(soma_centroid)
 
+    # Find which skeleton label overlaps with this soma
+    # This handles the case where skeleton labels may differ from soma labels
+    skeleton_at_soma = skeleton_arr[soma_mask]
+    skeleton_labels_in_soma = skeleton_at_soma[skeleton_at_soma > 0]
+    if len(skeleton_labels_in_soma) > 0:
+        # Use the most common skeleton label found in the soma region
+        unique_labels, counts = np.unique(
+            skeleton_labels_in_soma, return_counts=True
+        )
+        skeleton_label = int(unique_labels[np.argmax(counts)])
+        print(
+            f'Found skeleton label {skeleton_label} overlapping with soma {soma_label_id}'
+        )
+    else:
+        # No skeleton directly in soma - search nearby
+        # Dilate soma mask and check again
+        dilated_soma = ndi.binary_dilation(soma_mask, iterations=10)
+        skeleton_near_soma = skeleton_arr[dilated_soma]
+        skeleton_labels_near = skeleton_near_soma[skeleton_near_soma > 0]
+        if len(skeleton_labels_near) > 0:
+            unique_labels, counts = np.unique(
+                skeleton_labels_near, return_counts=True
+            )
+            skeleton_label = int(unique_labels[np.argmax(counts)])
+            print(
+                f'Found skeleton label {skeleton_label} near soma {soma_label_id}'
+            )
+        else:
+            raise ValueError(
+                f'No skeleton found overlapping or near soma {soma_label_id}'
+            )
+
     # Create directed trees for all branches radiating from this soma
+    # Filter to only the skeleton label that matches this soma
     trees = create_directed_trees_from_soma(
         skeleton_image=skeleton_arr,
         soma_mask=soma_mask,
         soma_centroid=soma_centroid,
         spacing=spacing,
         dilation_iterations=dilation_iterations,
+        skeleton_label=skeleton_label,
     )
 
     if not trees:
@@ -187,12 +221,13 @@ def directed_tree_analysis(
             branch_dist = edge_data.get('branch_distance', 0.0)
 
             # Get path coordinates for this edge
-            # skan stores path coordinates - we need to extract them
-            path_idx = edge_data.get('summary_index')
-            if path_idx is not None and path_idx < tree.skeleton.n_paths:
-                coords = tree.skeleton.path_coordinates(path_idx)
+            # The 'path' attribute contains coordinates from skeleton_to_nx
+            if 'path' in edge_data:
+                # Path is stored directly from skeleton_to_nx
+                coords = edge_data['path']
             else:
                 # Fallback: create simple line between nodes
+                # Note: skeleton.coordinates are in pixel units
                 coords = np.array(
                     [
                         tree.skeleton.coordinates[u],

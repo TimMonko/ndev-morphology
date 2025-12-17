@@ -374,23 +374,15 @@ def _copy_edge_attributes(
     summary: pd.DataFrame,
 ) -> None:
     """Copy edge attributes from undirected graph to directed graph."""
-    # Build lookup from node pairs to summary rows
+    # Build lookup from node pairs to summary rows (with row index)
     edge_lookup = {}
-    for _idx, row in summary.iterrows():
+    for idx, row in summary.iterrows():
         src, dst = int(row['node_id_src']), int(row['node_id_dst'])
-        edge_lookup[(src, dst)] = row
-        edge_lookup[(dst, src)] = row  # Both directions
+        edge_lookup[(src, dst)] = (idx, row)
+        edge_lookup[(dst, src)] = (idx, row)  # Both directions
 
     for u, v in directed.edges():
-        # Try to find matching row in summary
-        if (u, v) in edge_lookup:
-            row = edge_lookup[(u, v)]
-            directed[u][v]['branch_distance'] = row['branch_distance']
-            directed[u][v]['euclidean_distance'] = row['euclidean_distance']
-            directed[u][v]['branch_type'] = row['branch_type']
-            directed[u][v]['summary_index'] = _idx
-
-        # Also copy path coordinates from undirected if available
+        # Copy path from undirected graph first (this is the most important)
         if undirected.has_edge(u, v):
             edge_data = undirected.get_edge_data(u, v)
             if edge_data:
@@ -398,6 +390,14 @@ def _copy_edge_attributes(
                 first_edge = list(edge_data.values())[0]
                 if 'path' in first_edge:
                     directed[u][v]['path'] = first_edge['path']
+
+        # Also copy summary data
+        if (u, v) in edge_lookup:
+            idx, row = edge_lookup[(u, v)]
+            directed[u][v]['branch_distance'] = row['branch_distance']
+            directed[u][v]['euclidean_distance'] = row['euclidean_distance']
+            directed[u][v]['branch_type'] = row['branch_type']
+            directed[u][v]['summary_index'] = idx
 
 
 def create_directed_trees_from_soma(
@@ -407,6 +407,7 @@ def create_directed_trees_from_soma(
     *,
     spacing: tuple[float, ...] = (1.0, 1.0),
     dilation_iterations: int = 2,
+    skeleton_label: int | None = None,
 ) -> list[DirectedTree]:
     """
     Create directed trees for all branches radiating from a soma.
@@ -414,9 +415,10 @@ def create_directed_trees_from_soma(
     This function handles the case where multiple skeleton branches
     radiate outward from a soma region. It:
 
-    1. Excludes the soma region from the skeleton (creating disconnected fragments)
-    2. For each fragment, finds the node closest to the soma as its root
-    3. Creates a directed tree for each fragment
+    1. Optionally filters to a specific skeleton label
+    2. Excludes the soma region from the skeleton (creating disconnected fragments)
+    3. For each fragment, finds the node closest to the soma as its root
+    4. Creates a directed tree for each fragment
 
     Parameters
     ----------
@@ -432,6 +434,10 @@ def create_directed_trees_from_soma(
     dilation_iterations : int, optional
         How much to dilate the soma mask before exclusion (default: 2).
         This ensures clean separation of branches.
+    skeleton_label : int, optional
+        If provided, only analyze the skeleton with this label value.
+        This is important for multi-cell images where each neuron has
+        a unique skeleton label.
 
     Returns
     -------
@@ -442,12 +448,13 @@ def create_directed_trees_from_soma(
     Examples
     --------
     >>> from ndev_morphology.tree import create_directed_trees_from_soma
-    >>> # skeleton_image: binary skeleton of a neuron
-    >>> # soma_mask: binary mask of the cell body
+    >>> # skeleton_image: labeled skeleton (each cell has unique label)
+    >>> # soma_mask: binary mask of one cell body
     >>> # soma_centroid: (y, x) center of the soma
     >>> trees = create_directed_trees_from_soma(
     ...     skeleton_image, soma_mask, soma_centroid,
-    ...     spacing=(0.2, 0.2), dilation_iterations=3
+    ...     spacing=(0.2, 0.2), dilation_iterations=3,
+    ...     skeleton_label=1,  # Analyze only skeleton label 1
     ... )
     >>> print(f"Found {len(trees)} branches radiating from soma")
     >>> for i, tree in enumerate(trees):
@@ -466,6 +473,10 @@ def create_directed_trees_from_soma(
     skeleton_image = np.asarray(skeleton_image)
     soma_mask = np.asarray(soma_mask).astype(bool)
     soma_centroid = np.asarray(soma_centroid)
+
+    # Filter to specific skeleton label if provided
+    if skeleton_label is not None:
+        skeleton_image = (skeleton_image == skeleton_label).astype(np.uint8)
 
     # Exclude soma region from skeleton
     skeleton_no_soma = exclude_region_from_skeleton(
