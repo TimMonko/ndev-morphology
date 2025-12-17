@@ -69,6 +69,7 @@ from .sholl import ShollResult, compute_sholl_profile
 # Skeleton operations
 from .skeleton import (
     exclude_region_from_skeleton,
+    fill_skeleton_gaps,
     separate_touching_skeleton_labels,
     skeletonize_labels,
 )
@@ -76,11 +77,24 @@ from .skeleton import (
 # Soma detection
 from .soma import detect_soma_centroid, find_soma_node, get_label_centroid
 
+# Directed tree analysis
+from .tree import (
+    BranchOrder,
+    DirectedTree,
+    compute_branch_order,
+    compute_strahler_order,
+    create_directed_tree,
+    find_longest_path,
+    get_paths_to_tips,
+    summarize_directed_tree,
+)
+
 __all__ = [
     # Skeleton
     'skeletonize_labels',
     'exclude_region_from_skeleton',
     'separate_touching_skeleton_labels',
+    'fill_skeleton_gaps',
     # Labels
     'filter_labels_by_size',
     'exclude_labels_on_edges',
@@ -101,6 +115,15 @@ __all__ = [
     'detect_soma_centroid',
     'find_soma_node',
     'get_label_centroid',
+    # Tree
+    'DirectedTree',
+    'BranchOrder',
+    'create_directed_tree',
+    'compute_branch_order',
+    'compute_strahler_order',
+    'find_longest_path',
+    'get_paths_to_tips',
+    'summarize_directed_tree',
     # Analysis
     'CellAnalysisResult',
     'analyze_single_cell',

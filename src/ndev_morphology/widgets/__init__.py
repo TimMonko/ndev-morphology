@@ -14,6 +14,7 @@ from .sholl_widget import sholl_analysis
 from .skeleton_widget import skeleton_to_shapes
 from .skeletonize_widget import skeletonize_labels_widget
 from .soma_widget import soma_detection
+from .tree_widget import directed_tree_analysis
 
 __all__ = [
     'refine_labels_widget',
@@ -25,5 +26,6 @@ __all__ = [
     'soma_detection',
     'branch_analysis',
     'cell_analysis',
+    'directed_tree_analysis',
     'BatchAnalysisWidget',
 ]

@@ -31,6 +31,9 @@ contributions:
     - id: ndev-morphology.cell_analysis
       title: Cell Analysis
       python_name: ndev_morphology.widgets:cell_analysis
+    - id: ndev-morphology.directed_tree
+      title: Directed Tree Analysis
+      python_name: ndev_morphology.widgets:directed_tree_analysis
     - id: ndev-morphology.batch_analysis
       title: Batch Analysis
       python_name: ndev_morphology.widgets:BatchAnalysisWidget
@@ -53,5 +56,7 @@ contributions:
       display_name: Branch Analysis
     - command: ndev-morphology.cell_analysis
       display_name: Cell Analysis
+    - command: ndev-morphology.directed_tree
+      display_name: Directed Tree Analysis
     - command: ndev-morphology.batch_analysis
       display_name: Batch Analysis
