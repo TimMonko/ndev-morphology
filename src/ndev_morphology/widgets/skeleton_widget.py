@@ -8,11 +8,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import skan
 from magicgui import magic_factory
 
 from .._geometry import skeleton_to_paths
+from ._utils import get_or_create_model
 
 if TYPE_CHECKING:
     import napari
@@ -56,19 +55,18 @@ def skeleton_to_shapes(
     -------
     LayerDataTuple
         Shapes layer with branches as paths.
+
+    Notes
+    -----
+    This widget uses a cached MorphologyModel object stored in
+    layer.metadata. Subsequent runs reuse the same skan.Skeleton,
+    improving performance for repeated analysis.
     """
-    skeleton_arr = np.asarray(skeleton_layer.data)
-    scale = skeleton_layer.scale
-    spacing = tuple(scale[-2:])
+    # Use cached model (or create if first time)
+    model = get_or_create_model(skeleton_layer)
 
-    if not np.any(skeleton_arr):
-        raise ValueError('Skeleton is empty')
-
-    # Create skan Skeleton
-    skel = skan.Skeleton(skeleton_arr.astype(float), spacing=spacing)
-
-    # Get paths and properties
-    paths, properties = skeleton_to_paths(skel)
+    # Get paths and properties from the cached skeleton
+    paths, properties = skeleton_to_paths(model.skeleton)
 
     if not paths:
         raise ValueError('No branches found in skeleton')
@@ -82,7 +80,7 @@ def skeleton_to_shapes(
             'edge_colormap': 'viridis',
             'edge_width': edge_width,
             'name': f'{skeleton_layer.name}_shapes',
-            'scale': scale,
+            'scale': skeleton_layer.scale,
         },
         'shapes',
     )

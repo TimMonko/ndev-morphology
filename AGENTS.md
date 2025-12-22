@@ -27,6 +27,70 @@ pytest -v
 
 ---
 
+## Development Philosophy
+
+### No Backwards Compatibility Required
+
+**This code is not yet public.** We can make whatever breaking changes are needed at the moment. Do not hesitate to refactor, rename, or restructure when it improves the architecture. There is no need to maintain deprecated APIs or provide migration paths.
+
+### napari-workflows & napari-assistant Integration
+
+**Core Design Principle**: All ndev-morphology functions should be compatible with [napari-workflows](https://github.com/haesleinhuepf/napari-workflows) and discoverable in [napari-assistant](https://github.com/haesleinhuepf/napari-assistant).
+
+This is **more important than building our own workflow management system**. By designing functions that work with napari-workflows, we get:
+
+1. **Undo/Redo** — napari-workflows provides `UndoRedoController` that tracks workflow states
+2. **Workflow saving/loading** — YAML-based workflow persistence
+3. **Code generation** — Auto-generate Python scripts and Jupyter notebooks from workflows
+4. **Composability** — Our functions become building blocks in larger workflows with other tools (pyclesperanto, devbio-napari, etc.)
+5. **Interoperability** — Works with napari-workflow-optimizer, napari-workflow-inspector, napari-script-editor
+
+**How napari-workflows works**:
+```python
+from napari_workflows import Workflow
+
+# Define a workflow using function references and layer names
+w = Workflow()
+w.set("skeleton", skeletonize_labels, "labels_input")
+w.set("pruned", prune_short_branches, "skeleton", min_length=5)
+w.set("branches", summarize_branches, "pruned")
+
+# Execute any step (dependencies auto-resolve)
+result = w.get("branches")
+```
+
+**Verified Compatible Functions** (tested in `tests/test_napari_workflows_compat.py`):
+- `skeletonize_labels`, `separate_touching_skeleton_labels`, `exclude_region_from_skeleton`, `fill_skeleton_gaps`
+- `filter_labels_by_size`, `exclude_labels_on_edges`, `connect_breaks_between_labels`
+
+These functions accept numpy arrays and return numpy arrays, making them fully compatible with napari-workflows' `Workflow.set()` pattern. Workflows can be saved/loaded as YAML files.
+
+**How napari-assistant discovers functions**:
+Functions are discovered via the `napari.yaml` manifest. Use proper `display_name` prefixes:
+
+```yaml
+widgets:
+  - command: ndev-morphology.skeletonize_labels_widget
+    display_name: Segmentation post-processing > Skeletonize Labels (ndev)
+```
+
+**Valid prefixes for napari-assistant**:
+- `Filtering / noise removal >`
+- `Filtering / background removal >`
+- `Filtering >`
+- `Image math >`
+- `Transform >`
+- `Projection >`
+- `Segmentation / binarization >`
+- `Segmentation / labeling >`
+- `Segmentation post-processing >`
+- `Measurement >`
+- `Label neighbor filters >`
+- `Label filters >`
+- `Visualization >`
+
+---
+
 ## Package Purpose
 
 `ndev-morphology` provides single-cell morphological analysis tools, primarily for neuronal structures (dendrites, axons). The package bridges **skan** (skeleton analysis) and **napari** (visualization) with a focus on:
@@ -37,6 +101,7 @@ pytest -v
 4. **Sholl analysis** — Counting skeleton crossings at concentric shells
 5. **Directed tree analysis** — Understanding branch hierarchy from soma to tips (via networkx)
 6. **napari visualization** — Interactive widgets for analysis and exploration
+7. **SWC interoperability** — Import/export standard neuron morphology format
 
 ### Target Users
 
@@ -54,25 +119,119 @@ Following the ndev-kit pattern, **business logic is separate from UI**:
 
 ```
 src/ndev_morphology/
+├── model.py           # MorphologyModel - unified data wrapper
 ├── labels.py          # Label preprocessing (pure Python)
 ├── skeleton.py        # Skeleton creation/modification (pure Python)
 ├── sholl.py           # Sholl analysis with ShollResult dataclass
 ├── branch.py          # Branch-level measurements and classification
 ├── soma.py            # Soma detection and centroid extraction
+├── tree.py            # Directed tree analysis (networkx)
 ├── analysis.py        # Per-cell analysis pipelines, batch processing
+├── swc.py             # SWC format import/export (future)
 ├── _geometry.py       # Visualization helpers (skeleton_to_paths, etc.)
 ├── widgets/           # napari/magicgui widgets (UI layer)
+│   ├── _utils.py      # Shared widget utilities
 │   ├── labels_widget.py
 │   ├── skeletonize_widget.py
 │   ├── skeleton_widget.py
 │   ├── sholl_widget.py
+│   ├── tree_widget.py
 │   └── ...
 └── napari.yaml        # Plugin manifest
 ```
 
 **Rule**: Any function in `widgets/` should be a thin wrapper around core functionality.
 
-### skan vs networkx Design
+---
+
+## MorphologyModel Design
+
+### Purpose
+
+`MorphologyModel` is a **convenience wrapper** for working with skan.Skeleton objects:
+- Bundles `skan.Skeleton` with metadata (spacing, source name)
+- Provides lazy-computed properties (`summary`, `n_branches`, `total_length`)
+- Can attach to napari layers for visualization/export (e.g., SWC)
+
+### When to Use
+
+| Use Case | Pattern |
+|----------|--------|
+| Creating from array | `MorphologyModel.from_array(skeleton_image, spacing=(0.2, 0.2))` |
+| Creating from layer | `MorphologyModel.from_layer(labels_layer)` |
+| Accessing branch data | `model.summary`, `model.compute_branches()` |
+| SWC export (future) | `model.to_swc()` |
+
+### Layer Metadata Pattern
+
+```python
+# Attach model to output layer for later retrieval
+shapes_layer.metadata['morphology_model'] = model
+
+# Retrieve for export or inspection
+model = layer.metadata.get('morphology_model')
+```
+
+**Note**: Workflow state and undo/redo should be handled by **napari-workflows**, not MorphologyModel. The model is for data representation, not pipeline management.
+
+---
+
+## SWC Format Specification
+
+SWC is the standard format for neuron morphology, used by neuromorpho.org.
+
+### Format
+
+ASCII text, 7 columns per line:
+
+| Column | Name | Description |
+|--------|------|-------------|
+| 1 | Sample ID | Integer, typically starting from 1 |
+| 2 | Type | 0=undefined, 1=soma, 2=axon, 3=dendrite, 4=apical dendrite |
+| 3 | X | X coordinate in micrometers |
+| 4 | Y | Y coordinate in micrometers |
+| 5 | Z | Z coordinate in micrometers |
+| 6 | Radius | Half the thickness in micrometers |
+| 7 | Parent | Parent sample ID (-1 for root) |
+
+### Example
+
+```
+# SWC file for simple neuron
+1 1 0.0 0.0 0.0 5.0 -1    # Soma at origin
+2 3 10.0 0.0 0.0 1.0 1    # Dendrite from soma
+3 3 20.0 5.0 0.0 0.8 2    # Branch continues
+4 3 20.0 -5.0 0.0 0.8 2   # Fork
+```
+
+### Mapping to ndev-morphology
+
+| SWC Concept | ndev-morphology Equivalent |
+|-------------|---------------------------|
+| Sample ID | Node index in directed tree |
+| Type | Need classification (soma labels, branch type heuristics) |
+| X, Y, Z | `skeleton.coordinates[node]` |
+| Radius | Could derive from skeleton width or set constant |
+| Parent | Edge source in DirectedTree.graph |
+
+### Integration Strategy
+
+Prefer **napari-swc-reader** as optional dependency for I/O, with our own conversion functions:
+
+```python
+# Future: ndev_morphology/swc.py
+def tree_to_swc(tree: DirectedTree, soma_radius: float = 5.0) -> pd.DataFrame:
+    """Convert DirectedTree to SWC-format DataFrame."""
+    ...
+
+def swc_to_tree(swc_df: pd.DataFrame, spacing: tuple) -> DirectedTree:
+    """Convert SWC DataFrame to DirectedTree."""
+    ...
+```
+
+---
+
+## skan vs networkx Design
 
 | Library | Purpose | When to Use |
 |---------|---------|-------------|
@@ -95,6 +254,34 @@ src/ndev_morphology/
 
 ## Module Specifications
 
+### `model.py` — MorphologyModel
+
+**Purpose**: Unified data wrapper for skeleton analysis and visualization.
+
+**Classes**:
+- `MorphologyModel` — Wraps skan.Skeleton with metadata and lazy-computed properties
+
+**Functions**:
+- `get_model_from_layer(layer)` — Retrieve model from layer metadata
+- `attach_model_to_layer(layer, model)` — Store model in layer metadata
+
+**Usage Pattern**:
+```python
+from ndev_morphology import MorphologyModel
+
+# From numpy array (explicit creation)
+model = MorphologyModel.from_array(skeleton_image, spacing=(0.2, 0.2))
+
+# From napari layer (widget convenience)
+model = MorphologyModel.from_layer(skeleton_layer)
+
+# Access properties
+print(model.n_branches, model.total_length)
+branches_df = model.compute_branches()
+```
+
+**Status**: ✅ Implemented and tested
+
 ### `labels.py` — Label Preprocessing
 
 **Purpose**: Prepare segmentation masks for skeletonization.
@@ -104,7 +291,7 @@ src/ndev_morphology/
 - `exclude_labels_on_edges(labels)` — Remove border-touching labels
 - `connect_breaks_between_labels(labels, connect_distance)` — Merge nearby fragments
 
-**Status**: ✅ Implemented, needs dedicated tests
+**Status**: ✅ Implemented and tested
 
 ### `skeleton.py` — Skeleton Operations
 
@@ -130,105 +317,74 @@ src/ndev_morphology/
 
 **Status**: ✅ Implemented and tested
 
-### `branch.py` — Branch Analysis (TO IMPLEMENT)
+### `branch.py` — Branch Analysis
 
 **Purpose**: Branch-level measurements and classification using skan.
 
-**Planned Functions**:
-```python
-def summarize_branches(skeleton: skan.Skeleton, intensity_image: ArrayLike | None = None) -> pd.DataFrame:
-    """
-    Summarize branch properties from a skeleton.
+**Classes**:
+- `BranchType` — Enum for branch types (ENDPOINT_TO_ENDPOINT, JUNCTION_TO_ENDPOINT, etc.)
 
-    Wraps skan.summarize() with optional intensity measurements.
-    Adds computed metrics like tortuosity.
-    """
+**Functions**:
+- `summarize_branches(skeleton, *, intensity_image=None)` — Extended skan.summarize with tortuosity
+- `compute_tortuosity(branches_df)` — Path length / euclidean distance for each branch
+- `filter_branches_by_type(branches_df, types)` — Filter DataFrame by branch types
 
-def classify_branch_type(branch_summary: pd.DataFrame) -> pd.DataFrame:
-    """
-    Classify branches by type.
+**Status**: ✅ Implemented and tested
 
-    skan branch_type: 0=endpoint-endpoint, 1=junction-endpoint, 2=junction-junction
-    Adds human-readable labels and filters.
-    """
-
-def compute_tortuosity(branch_summary: pd.DataFrame) -> pd.Series:
-    """
-    Compute tortuosity (path_length / euclidean_distance) for each branch.
-    """
-```
-
-**Status**: ⏳ Not implemented
-
-### `soma.py` — Soma Detection (TO IMPLEMENT)
+### `soma.py` — Soma Detection
 
 **Purpose**: Identify cell body for directed tree analysis.
 
-**Planned Functions**:
-```python
-def detect_soma_centroid(
-    labels: ArrayLike,
-    *,
-    method: Literal['largest_region', 'roundest_region', 'intensity_peak'] = 'largest_region',
-    intensity_image: ArrayLike | None = None,
-) -> np.ndarray:
-    """
-    Detect soma centroid from label image.
+**Functions**:
+- `detect_soma_centroid(labels, *, method, intensity_image)` — Find soma center via multiple methods
+- `find_soma_node(skeleton, soma_centroid)` — Find nearest skeleton node to soma
+- `get_label_centroid(labels, label_id)` — Get centroid of a specific label
 
-    Methods:
-    - 'largest_region': Centroid of largest connected component
-    - 'roundest_region': Most circular region (lowest eccentricity)
-    - 'intensity_peak': Peak of DAPI/nucleus channel
-    """
+**Status**: ✅ Implemented and tested
 
-def find_soma_node(skeleton: skan.Skeleton, soma_centroid: ArrayLike) -> int:
-    """
-    Find the skeleton node closest to the soma centroid.
+### `tree.py` — Directed Tree Analysis
 
-    This node becomes the root for directed tree analysis.
-    """
-```
+**Purpose**: Analyze skeletons as directed trees rooted at soma.
 
-**Status**: ⏳ Not implemented
+**Classes**:
+- `DirectedTree` — Wraps networkx DiGraph with morphology-specific methods
+- `BranchOrder` — Constants for semantic branch order values
 
-### `analysis.py` — Per-Cell Analysis (TO IMPLEMENT)
+**Functions**:
+- `create_directed_tree(skeleton, root_coords)` — Create single directed tree
+- `create_directed_trees_from_soma(skeleton_image, soma_mask, soma_centroid)` — Create multiple trees from radiating branches
+- `compute_branch_order(tree)` — Centrifugal ordering (1=primary, 2=secondary, etc.)
+- `compute_strahler_order(tree)` — Strahler ordering (tips=1, merging increases)
+- `find_longest_path(tree)` — Find longest path from root to tip
+- `summarize_directed_tree(tree)` — DataFrame with per-branch order information
+
+**Status**: ✅ Implemented and tested
+
+### `analysis.py` — Per-Cell Analysis
 
 **Purpose**: Batch processing pipeline for multi-cell images.
 
-**Planned Functions**:
-```python
-def analyze_single_cell(
-    skeleton_image: ArrayLike,
-    label_id: int,
-    soma_centroid: ArrayLike,
-    *,
-    spacing: tuple[float, ...] = (1.0, 1.0),
-    sholl_step: float = 1.0,
-) -> dict:
-    """
-    Comprehensive analysis of a single labeled cell.
+**Classes**:
+- `CellAnalysisResult` — Dataclass containing skeleton, branches, Sholl, summary
 
-    Returns dict with:
-    - 'skeleton': skan.Skeleton object
-    - 'branches': pd.DataFrame of branch properties
-    - 'sholl': ShollResult
-    - 'summary': dict of aggregate metrics
-    """
+**Functions**:
+- `analyze_single_cell(skeleton_labels, label_id, ...)` — Comprehensive analysis of one cell
+- `analyze_all_cells(skeleton_labels, ...)` — Analyze all labeled cells, returns DataFrame
+- `analyze_all_cells_generator(...)` — Memory-efficient generator version
+- `aggregate_branch_stats(results)` — Combine branch DataFrames from multiple cells
 
-def analyze_all_cells(
-    skeleton_labels: ArrayLike,
-    soma_labels: ArrayLike | None = None,
-    *,
-    spacing: tuple[float, ...] = (1.0, 1.0),
-) -> pd.DataFrame:
-    """
-    Analyze all labeled cells in an image.
+**Status**: ✅ Implemented and tested
 
-    Returns DataFrame with one row per cell, columns for all metrics.
-    """
-```
+### `pruning.py` — Skeleton Pruning
 
-**Status**: ⏳ Not implemented
+**Purpose**: Remove unwanted branches from skeletons.
+
+**Functions**:
+- `prune_short_branches(skeleton, min_length)` — Remove branches below length threshold
+- `remove_isolated_cycles(skeleton)` — Remove isolated cycle branches
+- `prune_skeleton_to_image(skeleton, prune_indices)` — Convert pruned skeleton back to image
+
+**Status**: ✅ Implemented and tested
 
 ### `_geometry.py` — Visualization Utilities
 
@@ -348,43 +504,39 @@ def some_widget(
 | `skeletonize_labels_widget` | Create label-aware skeleton | `skeletonize_labels`, `separate_touching_skeleton_labels` |
 | `skeleton_to_shapes` | Visualize skeleton as Shapes | `skeleton_to_paths` |
 | `sholl_analysis` | Interactive Sholl | `compute_sholl_profile`, `sholl_shells_to_ellipses` |
+| `branch_analysis` | Branch measurements | `summarize_branches` |
+| `directed_tree_analysis` | Directed tree from soma | `create_directed_trees_from_soma`, `compute_branch_order` |
+| `prune_skeleton` | Remove short branches | `prune_short_branches` |
 
 ---
 
-## Implementation Phases
+## Implementation Status
 
-### Phase 1: Foundation (Current)
+### Complete ✅
+- [x] `model.py` — MorphologyModel data wrapper
 - [x] `labels.py` — Label preprocessing
-- [x] `skeleton.py` — Skeleton creation
+- [x] `skeleton.py` — Skeleton creation and modification
 - [x] `sholl.py` — Sholl analysis
+- [x] `branch.py` — Branch measurements and classification
+- [x] `soma.py` — Soma detection
+- [x] `tree.py` — Directed tree analysis with branch ordering
+- [x] `analysis.py` — Per-cell batch processing
+- [x] `pruning.py` — Skeleton pruning
 - [x] `_geometry.py` — Visualization utilities
-- [x] Basic widgets
-- [ ] `test_labels.py` — Add dedicated tests
-- [ ] `test_geometry.py` — Add tests
+- [x] Core widgets
+- [x] 153 tests passing
 
-### Phase 2: Branch Analysis
-- [ ] `branch.py` — Branch measurements and classification
-- [ ] Integrate skan.summarize with intensity measurements
-- [ ] Tortuosity and other derived metrics
-- [ ] `test_branch.py`
+### In Progress 🔄
+- [ ] napari-assistant compatibility — ensure all widgets have proper `display_name` prefixes
+- [ ] napari-workflows compatibility — verify all core functions work with `Workflow.set()`
 
-### Phase 3: Soma and Directed Trees
-- [ ] `soma.py` — Soma detection
-- [ ] Convert skeleton to networkx directed tree
-- [ ] Branch order computation
-- [ ] `test_soma.py`
-
-### Phase 4: Per-Cell Pipeline
-- [ ] `analysis.py` — Batch processing
-- [ ] Per-cell DataFrame output
-- [ ] Export utilities (CSV, etc.)
-- [ ] `test_analysis.py`
-
-### Phase 5: Advanced Features
+### Future ⏳
+- [ ] `swc.py` — SWC import/export
+- [ ] Shaft ordering (Neurolucida-style main axon identification)
 - [ ] Axon/dendrite classification (intensity-based)
 - [ ] 3D support improvements
-- [ ] GPU acceleration (pyclesperanto)
-- [ ] Widget tests
+- [ ] Integration with napari-swc-reader
+- [ ] Upstream improvements to napari-workflows if features are missing
 
 ---
 
@@ -521,9 +673,18 @@ def summarize_branches(skeleton, intensity_image=None):
 - [skan.sholl_analysis](https://skeleton-analysis.org/stable/api/skan.csr.html#skan.csr.sholl_analysis)
 - [skeleton_to_nx](https://skeleton-analysis.org/stable/api/skan.csr.html#skan.csr.skeleton_to_nx)
 
+### SWC Format
+- [SWC Specification](http://www.neuronland.org/NLMorphologyConverter/MorphologyFormats/SWC/Spec.html)
+- [NeuroMorpho.org](http://www.neuromorpho.org/) — Standard SWC archive
+
 ### Related Projects
+- [napari-workflows](https://github.com/haesleinhuepf/napari-workflows) — **Core dependency** for workflow management
+- [napari-assistant](https://github.com/haesleinhuepf/napari-assistant) — **Target UI** for workflow building
+- [devbio-napari](https://www.napari-hub.org/plugins/devbio-napari) — Bundle of compatible napari plugins
 - [MorphoPy](https://github.com/berenslab/MorphoPy) — Morphology analysis inspiration
 - [napari-skan](https://github.com/jni/skan) — skan's napari integration (reference)
+- [napari-swc-reader](https://github.com/kephale/napari-swc-reader) — SWC I/O for napari
+- [napari-swc-editor](https://github.com/LaboratoryOpticsBiosciences/napari-swc-editor) — SWC editing in napari
 
 ### ndev-kit Ecosystem
 - [ndevio](../ndevio/) — Image I/O and sample data
@@ -533,6 +694,19 @@ def summarize_branches(skeleton, intensity_image=None):
 ---
 
 ## Changelog
+
+- **2025-12-17**: napari-workflows integration decision
+  - Added "No Backwards Compatibility Required" statement
+  - Added napari-workflows and napari-assistant as core design principles
+  - Simplified MorphologyModel section (workflow management delegated to napari-workflows)
+  - Updated implementation priorities to focus on napari-assistant compatibility
+
+- **2025-12-17**: Major architecture update
+  - Added MorphologyModel data wrapper with pipeline philosophy
+  - Added SWC format specification and integration strategy
+  - Added tree.py module documentation
+  - Updated implementation status (all core modules now complete)
+  - Added 153 passing tests
 
 - **2025-12-15**: Initial AGENTS.md created
   - Documented package architecture and module specifications

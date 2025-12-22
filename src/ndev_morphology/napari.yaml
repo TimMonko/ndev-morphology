@@ -60,3 +60,24 @@ contributions:
       display_name: Directed Tree Analysis
     - command: ndev-morphology.batch_analysis
       display_name: Batch Analysis
+  # npe2 menu contributions for ndev-assistant discovery
+  menus:
+    # Register our submenu under napari's plugins menu
+    napari/plugins:
+    - submenu: ndev-morphology
+    # Define our operations in our submenu
+    ndev-morphology:
+    - command: ndev-morphology.refine_labels
+    - command: ndev-morphology.skeletonize_labels
+    - command: ndev-morphology.prune_skeleton
+    - command: ndev-morphology.skeleton_to_shapes
+    - command: ndev-morphology.skeleton_graph
+    - command: ndev-morphology.sholl_analysis
+    - command: ndev-morphology.soma_detection
+    - command: ndev-morphology.branch_analysis
+    - command: ndev-morphology.cell_analysis
+    - command: ndev-morphology.directed_tree
+    - command: ndev-morphology.batch_analysis
+  submenus:
+  - id: ndev-morphology
+    label: Morphology (ndev)

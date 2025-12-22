@@ -56,6 +56,13 @@ from .labels import (
     filter_labels_by_size,
 )
 
+# Central data model
+from .model import (
+    MorphologyModel,
+    attach_model_to_layer,
+    get_model_from_layer,
+)
+
 # Pruning operations
 from .pruning import (
     prune_short_branches,
@@ -132,6 +139,10 @@ __all__ = [
     'analyze_all_cells',
     'analyze_all_cells_generator',
     'aggregate_branch_stats',
+    # Model
+    'MorphologyModel',
+    'get_model_from_layer',
+    'attach_model_to_layer',
     # Geometry
     'skeleton_to_paths',
     'sholl_shells_to_ellipses',
